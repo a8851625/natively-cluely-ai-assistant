@@ -157,3 +157,58 @@ Deferred:
   (`NATIVELY_FORCE_RENDERER_AUDIO=1` for unpackaged dev builds).
 - Physical verification on Windows and on macOS 13.x is still outstanding for
   everything in this branch (sherpa-onnx, device enumeration fallback).
+
+### The packaging recipe that works here (2026-10-29)
+
+`npm run dist` cannot run on this machine: it calls `npm run build:native`
+(Xcode) and the stock afterPack hook compiles two Swift helpers that need the
+macOS 26 SDK. The working sequence:
+
+```sh
+npm run build
+NATIVELY_CORE_SMOKE=1 npm run build:electron
+npm run verify:packaged-local-assets
+node scripts/ensure-sharp-mac-deps.js && node scripts/ensure-napi-canvas-mac-deps.js && node scripts/ensure-sqlite-vec.js
+node scripts/package-app.js --config electron-builder.local.cjs --mac --arm64 --dir -c.mac.icon=assets/icon.icns
+cp -R release/mac-arm64/Natively.app /Applications/Natively.app
+```
+
+Three overrides are load-bearing:
+
+1. **`-c.mac.icon=assets/icon.icns`.** `build.mac.icon` points at
+   `assets/Natively.icon`, the IconComposer bundle, which electron-builder 26
+   compiles with `actool` — it fails with *"Failed to check actool version. Is
+   Xcode 26 or higher installed?"* on a Command Line Tools-only machine. The
+   plain `.icns` needs no Xcode.
+2. **`electron-builder.local.cjs`** replaces the afterPack hook with ad-hoc
+   signing only, skipping `scripts/build-apple-speech.js` (needs macOS 26 SDK)
+   and `scripts/build-parakeet-ane.js`. Cost: no Apple Speech STT and no
+   Parakeet CoreML/ANE backend in this build. The local ONNX and sherpa models
+   are unaffected. The hook still runs `ad-hoc-sign.js`, which also performs the
+   packed-arch verification.
+3. **The prebuilt native module.** Copy
+   `index.darwin-arm64.node` / `index.darwin-x64.node` out of an installed
+   build of the SAME version — here
+   `/Applications/corespeechd.app/Contents/Resources/app.asar.unpacked/native-module/`
+   (2.9.2, identical to this checkout) — into `native-module/`. They are
+   gitignored, `build.files` already includes `native-module`, and
+   `asarUnpack: ['**/*.node']` unpacks them. Without this the packaged app has
+   NO audio capture at all, because `useRendererCaptureFallback` returns false
+   for darwin when `isPackaged` is true (only Windows falls back in a shipped
+   build). With it, `[MicrophoneCapture] Starting native capture` works.
+
+Also worth knowing: `ensure-*-mac-deps.js` installs the **other** arch's
+optional packages. Skipping them makes `LocalFallbackPreflight` fail with
+`local-embedding missing_required_asset` (it verifies both darwin arches), even
+though the x64 dylibs are never loaded on Apple Silicon.
+
+### Profile sharing gotcha
+
+A packaged build resolves userData from the disguise name, so this app writes to
+`~/Library/Application Support/corespeechd` — the **same profile as the installed
+official app**, not the `natively` profile the unpackaged dev runs use. Two
+consequences: models downloaded while developing are not visible to the packaged
+app (copy `<org>/<name>` directories across), and `cp -R src/ dest/` with a
+trailing slash on the source flattens the repo layout that `isRepoCached`
+expects. A stale `.natively-download-incomplete` marker in a model directory
+makes `isRepoCached` return false regardless of the files being complete.

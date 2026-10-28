@@ -385,13 +385,28 @@ const LanguageContext = createContext<LanguageContextValue>({
     t: (text: string) => text,
 });
 
-function readStoredLang(): Lang {
+// Nothing stored yet: follow the OS locale instead of forcing English on a
+// Chinese, Russian, Japanese or Spanish user. Chromium reports the system
+// language here (zh-CN on a Chinese Mac/PC), and a stored choice always wins,
+// so anyone who ever picked a language keeps it.
+function systemLang(): Lang {
     try {
-        const v = localStorage.getItem(STORAGE_KEY);
-        return isSupportedLang(v) ? v : 'en';
+        const nav = navigator.languages?.[0] || navigator.language || '';
+        const base = nav.toLowerCase().split('-')[0];
+        return isSupportedLang(base) ? base : 'en';
     } catch {
         return 'en';
     }
+}
+
+function readStoredLang(): Lang {
+    try {
+        const v = localStorage.getItem(STORAGE_KEY);
+        if (isSupportedLang(v)) return v;
+    } catch {
+        /* localStorage unavailable — fall through to the system language */
+    }
+    return systemLang();
 }
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {

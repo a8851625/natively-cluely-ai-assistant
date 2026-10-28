@@ -212,3 +212,23 @@ app (copy `<org>/<name>` directories across), and `cp -R src/ dest/` with a
 trailing slash on the source flattens the repo layout that `isRepoCached`
 expects. A stale `.natively-download-incomplete` marker in a model directory
 makes `isRepoCached` return false regardless of the files being complete.
+
+The same split hides the interface language: it lives in the renderer's
+localStorage under `natively_lang`, per profile. A profile that never stored it
+starts in English, which looks like "the translation did not ship" when in fact
+the other profile has the setting.
+
+### Two repackaging traps
+
+1. **`npm run build` deletes `dist-electron`** (its `clean` step rimrafs both
+   `dist` and `dist-electron`). Packaging straight afterwards produces
+   *"Application entry file dist-electron/electron/main.js … is corrupted: not
+   found in this archive"* and an app that cannot start. Always run
+   `NATIVELY_CORE_SMOKE=1 npm run build:electron` between `build` and
+   `package-app.js`.
+2. **Every ad-hoc rebuild re-prompts for the keychain.** The signature is
+   content-derived, so the code identity changes on each package and macOS asks
+   again for access to the stored credentials (`SecurityAgent` dialog; the app
+   sits at 0% CPU right after `[Telemetry] sinks:` until it is answered). Pick
+   "Always Allow" once per build; there is no stable identity to pin without a
+   Developer ID certificate.

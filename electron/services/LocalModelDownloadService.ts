@@ -709,7 +709,7 @@ export class LocalModelDownloadService {
         // Providers with their own dedicated UI (e.g. 'reranker') correctly
         // do NOT need this legacy channel — they only ever use the unified
         // `local-model:${provider}:download-state` channel below.
-        if (entry.provider === 'whisper' || entry.provider === 'nemotron') {
+        if (entry.provider === 'whisper' || entry.provider === 'nemotron' || entry.provider === 'sherpa') {
           if (entry.status === 'complete') {
             try { wc.send('local-whisper-download-complete', { modelId: entry.modelId }); } catch { /* ignore */ }
           } else if (entry.status === 'error') {
@@ -806,7 +806,7 @@ export class LocalModelDownloadService {
       // resolveLocalModelProviderName); other providers ('reranker', …) have
       // their own id spaces this helper knows nothing about.
       if (
-        (e.provider === 'whisper' || e.provider === 'nemotron') &&
+        (e.provider === 'whisper' || e.provider === 'nemotron' || e.provider === 'sherpa') &&
         resolveLocalModelProviderName(e.modelId) !== e.provider
       ) {
         console.log(`[LocalModelDownloadService] rehydrate: dropping stale wrong-provider entry ${e.provider}:${e.modelId} (real provider: ${resolveLocalModelProviderName(e.modelId)})`);
@@ -871,7 +871,13 @@ export class LocalModelDownloadService {
 export function resolveLocalModelProviderName(modelId: string): string {
   const { MODEL_CATALOG } = require('../audio/whisper/modelManager') as typeof import('../audio/whisper/modelManager');
   const entry = MODEL_CATALOG.find((m) => m.id === modelId);
-  return entry?.sessionLayout === 'nemotron-rnnt' ? 'nemotron' : 'whisper';
+  const layout = entry?.sessionLayout;
+  if (layout === 'nemotron-rnnt') return 'nemotron';
+  // sherpa-onnx models download from flat HF repos (no `onnx/` subdir, no
+  // dtype variants) through their own provider. Routing them to 'whisper'
+  // would make the whisper provider look for files that can never exist.
+  if (layout === 'sherpa-online' || layout === 'sherpa-offline') return 'sherpa';
+  return 'whisper';
 }
 
 function downloadCompleteOnDisk(provider: LocalModelDownloadProvider, modelId: string): boolean {
@@ -1084,6 +1090,70 @@ export function createNemotronDownloadProvider(): LocalModelDownloadProvider {
       // whisperWorker.ts's nemotron-rnnt init branch requires SOME channelId
       // to be present; onWorkerMessage() above doesn't inspect it at all, so
       // any stable string is fine.
+      return { ...(buildWorkerInitMessage(modelId) as object), channelId: 'download' };
+    },
+  };
+}
+
+/**
+ * sherpa-onnx provider — the Chinese/Cantonese family (see
+ * electron/audio/sherpa/). Reuses whisperWorker.ts as the download-and-load
+ * worker, exactly like Nemotron: its `sherpa-online`/`sherpa-offline` init
+ * branch fetches the repo's files via sherpaFiles.downloadSherpaModel() before
+ * constructing the engine, so "download" and "load" stay one worker lifecycle.
+ *
+ * The worker is one-shot and never shared (spawnWorker() makes a fresh
+ * dedicated Worker per download), so the fixed 'download' channelId below can
+ * never collide with a real mic/system channel.
+ */
+export function createSherpaDownloadProvider(): LocalModelDownloadProvider {
+  return {
+    name: 'sherpa',
+    isModelCached(modelId: string): boolean {
+      const { getModelsDir } = require('../audio/whisper/modelManager') as typeof import('../audio/whisper/modelManager');
+      const { isSherpaModelCached } = require('../audio/sherpa/sherpaFiles') as typeof import('../audio/sherpa/sherpaFiles');
+      return isSherpaModelCached(getModelsDir(), modelId);
+    },
+    deletePartial(modelId: string): void {
+      const { getModelsDir } = require('../audio/whisper/modelManager') as typeof import('../audio/whisper/modelManager');
+      const { deletePartialSherpaFiles, sherpaModelDir } = require('../audio/sherpa/sherpaFiles') as typeof import('../audio/sherpa/sherpaFiles');
+      deletePartialSherpaFiles(sherpaModelDir(getModelsDir(), modelId));
+    },
+    prepareDownload(modelId: string): void {
+      prepareLocalSttDownload(modelId, (id) => this.deletePartial(id));
+    },
+    finishDownload(modelId: string): void {
+      finishLocalSttDownload(modelId);
+    },
+    describeError(message: string): string {
+      return describeLocalSttDownloadError(message);
+    },
+    isDamagedError(message: string): boolean {
+      return isDamagedLocalSttDownload(message);
+    },
+    discardDamaged(modelId: string): void {
+      const { getModelsDir } = require('../audio/whisper/modelManager') as typeof import('../audio/whisper/modelManager');
+      const { discardSherpaFiles, sherpaModelDir } = require('../audio/sherpa/sherpaFiles') as typeof import('../audio/sherpa/sherpaFiles');
+      discardSherpaFiles(sherpaModelDir(getModelsDir(), modelId));
+    },
+    preflightCheck(): string | null {
+      // sherpa needs its native addon; without it every download would succeed
+      // and every load would fail. Fail fast with an actionable message.
+      const { isSherpaRuntimeAvailable } = require('../audio/sherpa/sherpaEngine') as typeof import('../audio/sherpa/sherpaEngine');
+      if (!isSherpaRuntimeAvailable()) {
+        return 'The sherpa-onnx native module is missing. Reinstall Natively (or run `npm install`) to use the Chinese local models.';
+      }
+      return null;
+    },
+    beforeSpawn(): Promise<void> {
+      return prepareLocalSttDownloadEnvironment();
+    },
+    spawnWorker(): Worker {
+      return spawnLocalSttDownloadWorker();
+    },
+    buildInitMessage(modelId: string): unknown {
+      const { buildWorkerInitMessage } = require('../audio/whisper/inferenceConfig') as typeof import('../audio/whisper/inferenceConfig');
+      // channelId: dedicated one-shot worker, never shared — see the doc comment.
       return { ...(buildWorkerInitMessage(modelId) as object), channelId: 'download' };
     },
   };

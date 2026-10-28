@@ -549,6 +549,19 @@ docs/*
 # adding HOMEBREW_TAP_TOKEN) and the tag-case constraint the cask URL depends
 # on. Untracked, a fresh clone ships a cask nobody knows how to publish.
 !docs/homebrew-cask.md
+# Local STT: sherpa-onnx (2026-10-28) — the runtime/model decision record for the
+# Chinese/Cantonese local models. It is cited by
+# electron/audio/sherpa/sherpaCatalog.ts, sherpaFiles.ts and
+# docs/engineering comments in LocalWhisperSTT/modelManager, and it carries the
+# measurement table, the macOS-14 addon floor and the platform matrix that are
+# not recoverable from the code alone.
+!docs/engineering/
+!docs/engineering/LOCAL_STT_SHERPA.md
+# Local TODO: deferred work for this checkout (Modes Manager UI, remaining i18n
+# languages, packaging gaps). It is the only place the Modes-UI diagnosis and the
+# licence-predicate finding are written down, and it is meant to be read before
+# anyone re-investigates why the Modes panel renders empty.
+!docs/TODO_LOCAL.md
 benchmark-results/
 
 

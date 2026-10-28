@@ -15280,7 +15280,7 @@ export function initializeIpcHandlers(appState: AppState): void {
   });
 
   safeHandle('get-input-devices', async () => {
-    return AudioDevices.getInputDevices();
+    return AudioDevices.getInputDevicesWithFallback();
   });
 
   safeHandle('get-output-devices', async () => {

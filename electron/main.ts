@@ -10657,10 +10657,11 @@ async function initializeApp() {
   // waiting for IPC registration. The service rehydrates from disk
   // synchronously in its constructor.
   try {
-    const { LocalModelDownloadService, createWhisperDownloadProvider, createNemotronDownloadProvider } = require('./services/LocalModelDownloadService');
+    const { LocalModelDownloadService, createWhisperDownloadProvider, createNemotronDownloadProvider, createSherpaDownloadProvider } = require('./services/LocalModelDownloadService');
     const downloadService = LocalModelDownloadService.getInstance();
     downloadService.registerProvider(createWhisperDownloadProvider());
     downloadService.registerProvider(createNemotronDownloadProvider());
+    downloadService.registerProvider(createSherpaDownloadProvider());
     // No reranker download provider. It existed to lazily fetch the 283MB
     // bge-reranker-base on first mode activation; that model was removed on
     // 2026-09-04 (it measured WORSE than no reranker at all), and the 24MB

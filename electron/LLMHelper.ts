@@ -8823,6 +8823,86 @@ let isMultimodal = !!(imagePaths?.length);
    *
    * MULTIMODAL: Gemini-only (existing logic)
    */
+  /**
+   * The SELECTED model's own provider as a rung for `streamChatWithGemini`.
+   *
+   * `streamChatWithGemini` is the RAG answer chain (RAGManager.queryMeeting /
+   * queryGlobal — "chat with this meeting" and global search). Its ladder was
+   * built CLOUD-ONLY: Natively API, Codex CLI, OpenAI, Claude, DeepSeek,
+   * Gemini, Groq. It had no rung for the OpenAI-compatible gateways (LiteLLM,
+   * NVIDIA NIM, OpenRouter, 9Router, Sidrune, AgentRouter) and none for a
+   * user-configured cURL/custom provider, so a user whose only provider is one
+   * of those got "No AI provider configured. Please add at least one API key in
+   * Settings." from every meeting-chat answer, while their live answers and
+   * meeting summaries — which run through _streamChatInner's gateway branches
+   * and generateMeetingSummary's selectedModelTextCall — worked on the very
+   * same model. Reported live against `litellm/deepseek-flash`: notes and live
+   * answers succeeded, asking about the saved meeting did not.
+   *
+   * Returns null for the cloud families, which the existing ladder already
+   * covers, so nothing changes for those users.
+   */
+  private selectedGatewayStreamAttempt(
+    userContent: string,
+    systemPrompt: string | undefined,
+    imagePaths: string[] | undefined,
+    abortSignal?: AbortSignal,
+  ): { name: string; execute: () => AsyncGenerator<string, void, unknown> } | null {
+    const m = this.currentModelId;
+    if (!m) return null;
+
+    // A custom/cURL provider the user selected IS the model. Same precedence as
+    // _streamChatInner's branches 2a/2b, and the same disabled-provider gate.
+    const customProvidersOff = this.isProviderDisabled('custom');
+    if (!customProvidersOff && this.customProvider) {
+      const provider = this.customProvider;
+      return {
+        name: `Custom (${provider.name})`,
+        execute: () => this.streamWithCustom(userContent, undefined, imagePaths, systemPrompt, abortSignal, provider),
+      };
+    }
+    if (!customProvidersOff && this.activeCurlProvider) {
+      const provider = this.activeCurlProvider;
+      const self = this;
+      return {
+        name: `Custom cURL (${provider.name})`,
+        // Non-streaming, exactly like _streamChatInner's 2b branch: the cURL
+        // path has no SSE reader, so the answer arrives as one chunk.
+        execute: async function* () {
+          yield await self.executeCustomProvider(
+            provider.curlCommand,
+            userContent,
+            systemPrompt ?? '',
+            userContent,
+            '',
+            imagePaths?.[0],
+            provider.responsePath,
+          );
+        },
+      };
+    }
+
+    if (this.isLiteLLMModel(m) && this.litellmClient) {
+      return { name: `LiteLLM (${m.replace('litellm/', '')})`, execute: () => this.streamWithLiteLLM(userContent, systemPrompt, imagePaths, abortSignal) };
+    }
+    if (this.isNvidiaNimModel(m) && this.nvidiaNimClient) {
+      return { name: `NVIDIA NIM (${m.replace('nvidia_nim/', '')})`, execute: () => this.streamWithNvidiaNim(userContent, systemPrompt, imagePaths, abortSignal) };
+    }
+    if (this.isOpenRouterModel(m) && this.openrouterClient) {
+      return { name: `OpenRouter (${m.replace('openrouter/', '')})`, execute: () => this.streamWithOpenRouter(userContent, systemPrompt, imagePaths, abortSignal) };
+    }
+    if (this.isNinerouterModel(m) && this.ninerouterClient) {
+      return { name: `9Router (${m.replace('ninerouter/', '')})`, execute: () => this.streamWithNinerouter(userContent, systemPrompt, imagePaths, abortSignal) };
+    }
+    if (this.isFluxionModel(m) && this.hasFluxionCredential()) {
+      return { name: `Sidrune (${m.replace('fluxion/', '')})`, execute: () => this.streamWithFluxion(userContent, systemPrompt, imagePaths, abortSignal) };
+    }
+    if (this.isAgentRouterModel(m) && this.hasAgentRouterCredential()) {
+      return { name: `AgentRouter (${agentRouterWireModel(m)})`, execute: () => this.streamWithAgentRouter(userContent, systemPrompt, imagePaths, abortSignal) };
+    }
+    return null;
+  }
+
   // F7 (code-review 2026-08-14): `outcome` is the RAG path's equivalent of
   // streamChatWithOutcome. This generator is consumed DIRECTLY by RAGManager
   // (not via streamChat), so the truncation sentinel cannot be used here — it
@@ -8917,6 +8997,18 @@ let isMultimodal = !!(imagePaths?.length);
       return;
     }
 
+    // The SELECTED model's own gateway, ahead of the cloud ladder. Without it
+    // this RAG-only entry point had no rung for LiteLLM/NIM/OpenRouter/custom
+    // providers and bailed out below with "No AI provider configured" even
+    // though the same model answered fine everywhere else (see
+    // selectedGatewayStreamAttempt). Null for cloud families — no change there.
+    const selectedGateway = this.selectedGatewayStreamAttempt(
+      userContent,
+      skipSystemPrompt ? undefined : (v2StreamBase ?? HARD_SYSTEM_PROMPT),
+      isMultimodal ? imagePaths : undefined,
+      abortSignal,
+    );
+
     // ============================================================
     // SMART DYNAMIC FALLBACK: Build provider list using auto-discovered
     // text models from ModelVersionManager.
@@ -8926,6 +9018,7 @@ let isMultimodal = !!(imagePaths?.length);
     // ============================================================
     type ProviderAttempt = { name: string; execute: () => AsyncGenerator<string, void, unknown> };
     const providers: ProviderAttempt[] = [];
+    if (selectedGateway) providers.push(selectedGateway);
 
     // System prompts for OpenAI/Claude (skipped if skipSystemPrompt)
     const openaiSystemPrompt = skipSystemPrompt ? undefined : this.injectLanguageInstruction(v2StreamBase ?? OPENAI_SYSTEM_PROMPT);

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import { RU_GENERATED } from './i18n.ru.generated';
 import { RU_GENERATED2 } from './i18n.ru.generated2';
 import { ZH_GENERATED } from './i18n.zh.generated';
+import { ZH_GENERATED2 } from './i18n.zh.generated2';
 import { JA_GENERATED } from './i18n.ja.generated';
 import { ES_GENERATED } from './i18n.es.generated';
 import { ONBOARDING_RU, ONBOARDING_ZH, ONBOARDING_JA, ONBOARDING_ES } from './i18n.onboarding';
@@ -298,6 +299,9 @@ const RU: Record<string, string> = {
 // Chinese — ZH_GENERATED spread first, then hand-authored overrides on any collision.
 const ZH: Record<string, string> = {
     ...ZH_GENERATED,
+    // Wave 2 — keys added after the first generated pass, plus the entries the
+    // first file left as "Key": "Key". Spread second so it wins collisions.
+    ...ZH_GENERATED2,
     ...ONBOARDING_ZH,
     ...DIRECT_ASSIST_ZH,
     ...CREDENTIAL_STORES_ZH,

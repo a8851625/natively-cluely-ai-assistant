@@ -49,6 +49,7 @@
 import { MODEL_CATALOG } from './modelManager';
 import { RECOGNITION_LANGUAGES, ENGLISH_VARIANTS, PARAKEET_ONLY_LANGUAGE_KEYS } from '../../config/languages';
 import { resolveNemotronLangId } from './nemotron/languageTable';
+import { sherpaSpec } from '../sherpa/sherpaCatalog';
 
 export interface LocalModelLanguageSupport {
   /**
@@ -222,6 +223,30 @@ function isNemotronModel(modelId: string): boolean {
  *  - English-only models: the English variants only, language locked.
  */
 export function getLocalModelLanguageSupport(modelId: string): LocalModelLanguageSupport {
+  // sherpa-onnx (Chinese/Cantonese). SenseVoice takes an explicit language
+  // token, so it gets exactly the five languages it documents plus auto. The
+  // other exports are single-language (Chinese-only) or self-detecting
+  // (trilingual streaming), so their select is locked to what they actually do
+  // — same convention as an English-only checkpoint.
+  const sherpa = sherpaSpec(modelId);
+  if (sherpa) {
+    const matching = Object.entries(RECOGNITION_LANGUAGES)
+      .filter(([key, lang]) => key === 'auto' || sherpa.languages.includes(lang.iso639))
+      .map(([key]) => key);
+    if (sherpa.languageMode === 'sensevoice') {
+      return { languageSelectable: true, accentSelectable: false, allowedLanguageKeys: matching };
+    }
+    const fixed = Object.entries(RECOGNITION_LANGUAGES)
+      .filter(([, lang]) => sherpa.languages.includes(lang.iso639))
+      .map(([key]) => key);
+    return {
+      languageSelectable: false,
+      accentSelectable: false,
+      // Never empty: the select must show something truthful for a locked model.
+      allowedLanguageKeys: fixed.length > 0 ? fixed : ['chinese'],
+    };
+  }
+
   if (isNemotronModel(modelId)) {
     const allowed = Object.entries(RECOGNITION_LANGUAGES)
       .filter(([key, lang]) => key !== 'auto' && !PARAKEET_ONLY_LANGUAGE_KEYS.has(key)

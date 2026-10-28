@@ -87,8 +87,16 @@ test('English-only guard derives from the catalog and correctly marks multilingu
   assert.equal(isEnglishOnlyLocalModel('some/unknown-model'), true);
 });
 
+// sherpa-onnx models have their own language rules (SenseVoice takes an
+// explicit token; the Chinese-only exports lock the select to Chinese rather
+// than to English) and are covered by
+// electron/audio/sherpa/__tests__/SherpaCatalog2026_10_28.test.mjs. They are
+// excluded from the two Whisper-family tests below, which assert the
+// English-only / 99-language split.
+const isSherpa = (m) => m.sessionLayout === 'sherpa-online' || m.sessionLayout === 'sherpa-offline';
+
 test('English-only models lock both selects and allow only the English variants', () => {
-  for (const m of MODEL_CATALOG.filter((x) => !x.multilingual)) {
+  for (const m of MODEL_CATALOG.filter((x) => !x.multilingual && !isSherpa(x))) {
     const s = getLocalModelLanguageSupport(m.id);
     assert.equal(s.languageSelectable, false, `${m.id}: language must be locked`);
     assert.equal(s.accentSelectable, false, `${m.id}: accent must be locked`);
@@ -102,7 +110,7 @@ test('English-only models lock both selects and allow only the English variants'
 
 test('multilingual Whisper-family models allow every language but the Parakeet-only ones, including auto, but no accent conditioning', () => {
   const whisperMultilingual = MODEL_CATALOG.filter(
-    (m) => m.multilingual && m.sessionLayout !== 'nemotron-rnnt' && m.sessionLayout !== 'parakeet-tdt',
+    (m) => m.multilingual && m.sessionLayout !== 'nemotron-rnnt' && m.sessionLayout !== 'parakeet-tdt' && !isSherpa(m),
   );
   assert.ok(whisperMultilingual.length > 0, 'catalog must contain multilingual Whisper checkpoints');
   for (const m of whisperMultilingual) {

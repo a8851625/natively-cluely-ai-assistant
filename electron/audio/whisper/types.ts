@@ -27,6 +27,14 @@ export type WhisperModelId =
   // Parakeet TDT v2 — the English-only predecessor of v3, same ONNX layout,
   // lower English WER. CC-BY-4.0.
   | 'istupakov/parakeet-tdt-0.6b-v2-onnx'
+  // ── sherpa-onnx (k2-fsa) — a second local runtime beside transformers.js and
+  //    the raw-ONNX engines. The only source of Chinese-first ASR, genuinely
+  //    incremental Chinese streaming, and Cantonese. See
+  //    electron/audio/sherpa/sherpaCatalog.ts for the measured model choice.
+  | 'csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17'
+  | 'csukuangfj/sherpa-onnx-streaming-zipformer-multi-zh-hans-int8-2023-12-13'
+  | 'csukuangfj/sherpa-onnx-paraformer-zh-int8-2025-10-07'
+  | 'csukuangfj/sherpa-onnx-streaming-paraformer-trilingual-zh-cantonese-en'
   // Nemotron 3.5 ASR Streaming — NVIDIA's cache-aware FastConformer-RNNT,
   // multilingual, genuinely chunked/streaming (not simulated like every other
   // entry above). Int4 ONNX export via onnx-community. Bypasses
@@ -73,8 +81,12 @@ export interface WhisperModelInfo {
    * `'single'` is a one-session CTC model.
    * `'nemotron-rnnt'` is NVIDIA FastConformer-RNNT.
    * `'parakeet-tdt'` is NVIDIA FastConformer-TDT multilingual.
+   * `'sherpa-online'` / `'sherpa-offline'` run on the sherpa-onnx addon
+   * (electron/audio/sherpa/) instead of onnxruntime-node. Online keeps engine
+   * state across calls and is fed deltas; offline re-decodes the whole segment
+   * on every call.
    */
-  sessionLayout?: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt';
+  sessionLayout?: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt' | 'sherpa-online' | 'sherpa-offline';
   /**
    * Set when this catalog entry is not yet functional and must not be
    * surfaced in any user-facing model picker. Everything else about the
@@ -148,7 +160,7 @@ export interface WorkerInitMessage {
   // Routes the worker between the transformers.js pipeline() path (undefined /
   // 'encoder-decoder' / 'single') and the raw-ONNX engines
   // ('nemotron-rnnt', 'parakeet-tdt'). See WhisperModelInfo.sessionLayout for the source of truth.
-  sessionLayout?: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt';
+  sessionLayout?: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt' | 'sherpa-online' | 'sherpa-offline';
   // parakeet-tdt only: which engine runs it, decided on the main process by
   // parakeet/aneBackend.ts resolveParakeetBackend(). 'coreml-ane' (Apple
   // Silicon with the helper built) also carries the helper's path, which the
@@ -214,7 +226,15 @@ export interface WorkerSetPromptMessage {
  */
 export interface WorkerSetLanguageMessage {
   type: 'setLanguage';
-  langId: number;
+  /** nemotron-rnnt only: resolved NVIDIA PROMPT_DICTIONARY index. */
+  langId?: number;
+  /**
+   * sherpa-onnx only: the app's Recognition language key ('chinese', 'auto',
+   * ...). SenseVoice maps it to its own token (see
+   * sherpa/sherpaCatalog.ts resolveSherpaLanguage); every other sherpa export
+   * is single-language or self-detecting and ignores it.
+   */
+  language?: string;
   // Dual-channel Nemotron only — see WorkerInitMessage.channelId.
   channelId?: string;
 }

@@ -3,6 +3,7 @@ import { ONNX_MAC_UNSUPPORTED_MESSAGE, onnxRuntimeSupportedOnThisMac } from './o
 import fs from 'fs';
 import type { WhisperModelId, WhisperModelInfo } from './types';
 import { isCorruptModelFailure } from './loadFailure';
+import { SHERPA_MODELS } from '../sherpa/sherpaCatalog';
 
 // env is configured lazily via configureTransformersCache()
 // We import the type only here; the actual require() happens at runtime.
@@ -132,6 +133,24 @@ export const MODEL_CATALOG: WhisperModelInfo[] = [
   // new installs get Medium Multilingual, which transcribes English too.
   { id: 'Xenova/whisper-medium.en',  name: 'Medium English',  sizeMb: 1500, speed: 'slow',      accuracy: 'very-high', multilingual: false, status: 'missing', requiresAppleSilicon: true, externalDataFormat: { 'decoder_model_merged.onnx': true }, installedOnly: true },
   { id: 'Xenova/whisper-medium',     name: 'Medium Multilingual', sizeMb: 1810, speed: 'slow',  accuracy: 'very-high', multilingual: true,  status: 'missing', requiresAppleSilicon: true, repoId: 'onnx-community/whisper-medium-ONNX', legacyFilesUsable: true },
+
+  // ── sherpa-onnx (k2-fsa) — the Chinese/Cantonese family. A separate runtime
+  //    (N-API addon, prebuilt per platform) because transformers.js has no
+  //    Chinese-first model and no genuinely incremental streaming ASR.
+  //    Generated from electron/audio/sherpa/sherpaCatalog.ts so the model list,
+  //    file sets and language capabilities live in exactly one place.
+  //    Measured on macOS 14.6.1/arm64: RTF 0.018-0.042 at 2 threads.
+  ...SHERPA_MODELS.map((spec): WhisperModelInfo => ({
+    id: spec.id as WhisperModelId,
+    name: spec.name,
+    sizeMb: spec.sizeMb,
+    speed: spec.speed,
+    accuracy: spec.accuracy,
+    multilingual: spec.multilingual,
+    status: 'missing' as const,
+    streaming: spec.streaming,
+    sessionLayout: spec.streaming ? ('sherpa-online' as const) : ('sherpa-offline' as const),
+  })),
 ];
 
 /**
@@ -511,6 +530,12 @@ function isRepoCached(
   const sessionLayout = catalogEntry(modelId)?.sessionLayout;
   if (sessionLayout === 'nemotron-rnnt') return isNemotronModelCached(modelDir);
   if (sessionLayout === 'parakeet-tdt') return isParakeetModelCached(modelDir, modelId, repo);
+  // sherpa-onnx: flat repo layout, no `onnx/` subdir and no dtype variants —
+  // the catalog's file list IS the completeness contract.
+  if (sessionLayout === 'sherpa-online' || sessionLayout === 'sherpa-offline') {
+    const { isSherpaModelCached } = require('../sherpa/sherpaFiles') as typeof import('../sherpa/sherpaFiles');
+    return isSherpaModelCached(cacheDir, modelId);
+  }
 
   if (!dtype) {
     try { return fs.readdirSync(modelDir).length > 0; } catch { return false; }
@@ -543,7 +568,8 @@ function isRepoCached(
 export function getResumableDownloadFiles(modelId: string, dtype: string | Record<string, string>): string[] {
   const m = catalogEntry(modelId);
   const layout = m?.sessionLayout;
-  if (!m || layout === 'nemotron-rnnt' || layout === 'parakeet-tdt' || layout === 'single') return [];
+  if (!m || layout === 'nemotron-rnnt' || layout === 'parakeet-tdt' || layout === 'single'
+      || layout === 'sherpa-online' || layout === 'sherpa-offline') return [];
   return loadedOnnxFiles(dtype, m.externalDataFormat, layout).map(f => `onnx/${f}`);
 }
 

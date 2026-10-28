@@ -120,6 +120,15 @@ const buildOptions = {
     // verified empirically by removing it and rebuilding clean, and by
     // confirming no first-party file imports onnxruntime-common directly.)
     'onnxruntime-node',
+    // sherpa-onnx-node (the Chinese/Cantonese local STT runtime, see
+    // electron/audio/sherpa/) has the same shape: a compiled `.node` addon
+    // plus platform packages that dlopen sibling `.dylib`/`.dll` files
+    // (libsherpa-onnx-c-api, libonnxruntime). esbuild cannot bundle a native
+    // binary — externalizing keeps the real module (and its rpath-relative
+    // libraries) loadable from node_modules at runtime. Both `*.node` and
+    // `*.dylib` are already in build.asarUnpack, so packaged builds load it
+    // from app.asar.unpacked exactly like onnxruntime-node.
+    'sherpa-onnx-node',
     // Heavy native ESM modules with `import.meta.url`-dependent init. Keeping
     // them external lets Node's loader give them a real `import.meta.url`,
     // which the bundled version can't (esbuild's CJS target sets

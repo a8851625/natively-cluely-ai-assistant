@@ -199,16 +199,20 @@ function formatSize(mb: number): string {
  * rather than dropped: "Tiny English", "Base Multilingual" and friends are all
  * Whisper checkpoints that do not say "Whisper" in their names.
  */
-const FAMILY_RULES: Array<{ id: string; label: string; note: string; test: (name: string) => boolean }> = [
-    { id: 'moonshine', label: 'Moonshine', note: 'Smallest and quickest to start', test: (n) => /^moonshine/i.test(n) },
-    { id: 'parakeet', label: 'Parakeet', note: 'NVIDIA FastConformer TDT. v2: English; v3: Multilingual (25 languages)', test: (n) => /^parakeet/i.test(n) },
-    { id: 'nemotron', label: 'Nemotron', note: 'NVIDIA FastConformer-RNNT, real streaming, multilingual', test: (n) => /^nemotron/i.test(n) },
-    { id: 'distil', label: 'Distil-Whisper', note: 'Compressed Whisper, near-equal accuracy', test: (n) => /^distil/i.test(n) },
+const FAMILY_RULES: Array<{ id: string; label: string; note: string; test: (model: ModelInfo) => boolean }> = [
+    // sherpa-onnx first, and matched on the model ID: these are the Chinese /
+    // Cantonese models (SenseVoice, realtime Zipformer, Paraformer) and their
+    // display names are localised, so a name pattern would be brittle.
+    { id: 'sherpa', label: '中文 / 粤语', note: 'sherpa-onnx：SenseVoice、实时 Zipformer、Paraformer — 本地中文识别', test: (m) => /sherpa-onnx/i.test(m.id) },
+    { id: 'moonshine', label: 'Moonshine', note: 'Smallest and quickest to start', test: (m) => /^moonshine/i.test(m.name) },
+    { id: 'parakeet', label: 'Parakeet', note: 'NVIDIA FastConformer TDT. v2: English; v3: Multilingual (25 languages)', test: (m) => /^parakeet/i.test(m.name) },
+    { id: 'nemotron', label: 'Nemotron', note: 'NVIDIA FastConformer-RNNT, real streaming, multilingual', test: (m) => /^nemotron/i.test(m.name) },
+    { id: 'distil', label: 'Distil-Whisper', note: 'Compressed Whisper, near-equal accuracy', test: (m) => /^distil/i.test(m.name) },
     { id: 'whisper', label: 'Whisper', note: 'Original OpenAI checkpoints', test: () => true },
 ];
 
 function familyOf(model: ModelInfo): string {
-    return (FAMILY_RULES.find((r) => r.test(model.name)) ?? FAMILY_RULES[FAMILY_RULES.length - 1]).id;
+    return (FAMILY_RULES.find((r) => r.test(model)) ?? FAMILY_RULES[FAMILY_RULES.length - 1]).id;
 }
 
 interface LocalWhisperModelPanelProps {

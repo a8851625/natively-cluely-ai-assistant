@@ -294,6 +294,50 @@ async function initParakeetChannel(msg: any, channelId: string): Promise<void> {
   }
 }
 
+// ── sherpa-onnx (Chinese / Cantonese) ─────────────────────────────────
+// A second local runtime beside transformers.js and the raw-ONNX engines.
+// Its addon is N-API, so it loads here in the worker thread like any other
+// module; no Electron rebuild and no ORT session juggling. One engine per
+// channelId, serialized per channel (an online engine holds decoder state and
+// must never see two transcribes interleaved).
+type SherpaEngineLike = import('../sherpa/sherpaEngine').SherpaEngine;
+const sherpaChannels = new Map<string, SherpaEngineLike>();
+const sherpaChains = new Map<string, Promise<void>>();
+function getSherpaChain(channelId: string): Promise<void> {
+  return sherpaChains.get(channelId) ?? Promise.resolve();
+}
+function setSherpaChain(channelId: string, p: Promise<void>): void {
+  sherpaChains.set(channelId, p);
+}
+let sherpaInitChain: Promise<void> = Promise.resolve();
+
+async function initSherpaChannel(msg: any, channelId: string): Promise<void> {
+  try {
+    const path = require('path');
+    const { downloadSherpaModel } = require('../sherpa/sherpaFiles') as typeof import('../sherpa/sherpaFiles');
+    const { createSherpaEngine } = require('../sherpa/sherpaEngine') as typeof import('../sherpa/sherpaEngine');
+    // Files are fetched here (not by the host) so "download" and "load" stay
+    // one worker lifecycle, exactly like Nemotron and Parakeet. Progress is
+    // reported against the catalog's byte total.
+    await downloadSherpaModel(msg.cacheDir, msg.modelId, (pct: number) => {
+      parentPort!.postMessage({ type: 'progress', modelId: msg.modelId, progress: pct, channelId: msg.channelId });
+    });
+    const modelDir = path.join(msg.cacheDir, ...String(msg.modelId).split('/'));
+    // Init carries no language: LocalWhisperSTT pushes the real one with a
+    // `setLanguage` message right after `ready` (flushPending), so starting on
+    // auto-detection avoids loading a recognizer that is rebuilt immediately.
+    const engine = createSherpaEngine(msg.modelId, modelDir, { languageKey: 'auto' });
+    sherpaChannels.set(channelId, engine);
+    loadedModelId = msg.modelId;
+    console.log(`[WhisperWorker] sherpa ready: ${msg.modelId} (streaming=${engine.streaming}, channel=${channelId})`);
+    parentPort!.postMessage({ type: 'ready', channelId: msg.channelId });
+  } catch (e: any) {
+    // Same 'Failed to load model' prefix the other families use: the host's
+    // error handler keys on it to emit('error') and purge a corrupt install.
+    parentPort!.postMessage({ type: 'error', channelId: msg.channelId, message: `Failed to load model: ${e?.message ?? String(e)}` });
+  }
+}
+
 parentPort.on('message', async (msg: any) => {
   if (msg.type === 'shutdown') {
     // Cooperative stop — see electron/utils/onnxWorkerShutdown.ts. The host
@@ -306,6 +350,8 @@ parentPort.on('message', async (msg: any) => {
     // The Neural Engine helper would also exit on its own when this thread's
     // pipes close; disposing it first makes that immediate.
     parakeetAneEngine?.dispose();
+    for (const engine of sherpaChannels.values()) engine.dispose();
+    sherpaChannels.clear();
     process.exit(0);
   }
   if (msg.type === 'init') {
@@ -350,6 +396,15 @@ parentPort.on('message', async (msg: any) => {
         console.error('[WhisperWorker] parakeet init chain error (should be unreachable):', chainErr);
       });
       return;
+    }
+    if (msg.sessionLayout === 'sherpa-online' || msg.sessionLayout === 'sherpa-offline') {
+      // Chained for the same reason as Nemotron/Parakeet: two channels can
+      // init one worker back to back, and the second must not race the first.
+      const channelId: string = msg.channelId || 'default';
+      sherpaInitChain = sherpaInitChain.then(() => initSherpaChannel(msg, channelId)).catch((chainErr) => {
+        console.error('[WhisperWorker] sherpa init chain error (should be unreachable):', chainErr);
+      });
+      return; // never fall through to the transformers.js pipeline() path
     }
     // Validate required fields BEFORE entering the try/catch so the error
     // surfaces as a structured `error` postMessage rather than an unhandled
@@ -543,6 +598,9 @@ parentPort.on('message', async (msg: any) => {
       nemotronSegmentTokens.delete(msg.channelId);
       parakeetChannels.delete(msg.channelId);
       parakeetChains.delete(msg.channelId);
+      sherpaChannels.get(msg.channelId)?.dispose();
+      sherpaChannels.delete(msg.channelId);
+      sherpaChains.delete(msg.channelId);
     }
     return;
   } else if (msg.type === 'setPrompt') {
@@ -583,6 +641,19 @@ parentPort.on('message', async (msg: any) => {
       if (iso && !PARAKEET_TDT_SUPPORTED_ISO639.has(iso)) {
         console.warn(`[WhisperWorker] Parakeet TDT language warning: "${msg.language}" (${iso}) is not in 25 supported European languages`);
       }
+    }
+    const sherpaKey = channelId || 'default';
+    const sherpaLangEngine = sherpaChannels.get(sherpaKey)
+      ?? (sherpaChannels.size === 1 ? sherpaChannels.values().next().value : undefined);
+    if (sherpaLangEngine) {
+      // Serialized through the channel's own chain: a language change rebuilds
+      // the SenseVoice recognizer, which must never happen mid-transcribe.
+      setSherpaChain(sherpaKey, getSherpaChain(sherpaKey).then(() => {
+        sherpaLangEngine.setLanguage(msg.language ?? 'auto');
+      }).catch((chainErr) => {
+        console.error('[WhisperWorker] sherpa language chain error (should be unreachable):', chainErr);
+      }));
+      return;
     }
     return;
   } else if (msg.type === 'transcribe') {
@@ -673,6 +744,35 @@ parentPort.on('message', async (msg: any) => {
         }
       }).catch((chainErr) => {
         console.error('[WhisperWorker] parakeet chain error (should be unreachable):', chainErr);
+      }));
+      return;
+    }
+    const sherpaChannelKey = channelId || 'default';
+    const sherpaEngine = sherpaChannels.get(sherpaChannelKey)
+      ?? (sherpaChannels.size === 1 ? sherpaChannels.values().next().value : undefined);
+    if (sherpaEngine) {
+      setSherpaChain(sherpaChannelKey, getSherpaChain(sherpaChannelKey).then(() => {
+        try {
+          // `nemotronReset` is the protocol's "stateful engine, new utterance"
+          // flag (see WorkerTranscribeMessage); an online sherpa engine resets
+          // its stream on it, an offline one ignores it.
+          const res = sherpaEngine.transcribe(msg.audio, { reset: !!msg.nemotronReset });
+          parentPort!.postMessage({
+            type: msg.streaming ? 'partial' : 'result',
+            taskId: msg.taskId,
+            channelId: msg.channelId,
+            text: res.text,
+          });
+        } catch (e: any) {
+          parentPort!.postMessage({
+            type: 'error',
+            taskId: msg.taskId,
+            channelId: msg.channelId,
+            message: e?.message ?? String(e),
+          });
+        }
+      }).catch((chainErr) => {
+        console.error('[WhisperWorker] sherpa chain error (should be unreachable):', chainErr);
       }));
       return;
     }

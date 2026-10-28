@@ -1,0 +1,16 @@
+{
+  "name": "sherpa-onnx-spike",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local spike: sherpa-onnx as a Chinese-capable local STT runtime for Natively",
+  "scripts": {
+    "models": "node src/download.mjs",
+    "offline": "node run-offline.mjs",
+    "stream": "node run-stream.mjs",
+    "bench": "node run-bench.mjs"
+  },
+  "dependencies": {
+    "sherpa-onnx-node": "2.0.1"
+  }
+}

@@ -47,6 +47,7 @@ import { filterHallucination } from './whisper/hallucinationFilter';
 import { configureTransformersCache, getModelSizeMb, purgeCorruptModel } from './whisper/modelManager';
 import { clearLoadSentinel, modelPreloader, writeLoadSentinel } from './whisper/modelPreloader';
 import { buildWorkerInitMessage } from './whisper/inferenceConfig';
+import { sherpaSpec } from './sherpa/sherpaCatalog';
 import { resolveWhisperWorkerPath } from './whisper/workerPathResolver';
 import type { WhisperModelId, WorkerOutMessage } from './whisper/types';
 import { acquireOnnxSlotWithin, hasEnoughMemoryForModelSize, getMinFreeGBForModelSize } from '../utils/onnxThreadConfig';
@@ -201,6 +202,24 @@ export class LocalWhisperSTT extends EventEmitter {
     private nemotronSentSamples = 0;
     private readonly isNemotronModel: boolean;
     private readonly isParakeetModel: boolean;
+    /**
+     * A sherpa-onnx model (Chinese/Cantonese family — see
+     * electron/audio/sherpa/sherpaCatalog.ts). `isSherpaStreamingModel` is the
+     * subset whose engine keeps decoder state across calls, which is what
+     * forces the delta-feed protocol below.
+     */
+    private readonly isSherpaModel: boolean;
+    private readonly isSherpaStreamingModel: boolean;
+    /**
+     * Delta protocol: the worker's engine accumulates audio, so each dispatch
+     * carries only the samples since the previous one and `nemotronReset` marks
+     * the first dispatch of a segment. Nemotron (RNNT cache) and streaming
+     * sherpa models (online zipformer/paraformer) both work this way; every
+     * other model is sent the whole growing segment each time and ignores both.
+     */
+    private get usesDeltaProtocol(): boolean {
+        return this.isNemotronModel || this.isSherpaStreamingModel;
+    }
 
     // Dual-channel Nemotron only. The channel identity this instance
     // registered with the shared worker (see
@@ -246,6 +265,8 @@ export class LocalWhisperSTT extends EventEmitter {
     // maybePushPromptToWorker). Reset to null in beginWorkerTermination —
     // a future worker starts without this state applied and must be re-sent.
     private nemotronLangIdSentToWorker: number | null = null;
+    /** sherpa-onnx only: last language key pushed to the worker (see maybePushSherpaLanguageToWorker). */
+    private sherpaLanguageSentToWorker: string | null = null;
 
     // Gap-flush: ensures a segment closes even if Rust SilenceSuppressor
     // stops sending audio before VAD's hangover completes.
@@ -304,6 +325,8 @@ export class LocalWhisperSTT extends EventEmitter {
         this.modelId = modelId;
         this.isNemotronModel = LocalWhisperSTT.isNemotronModelId(modelId);
         this.isParakeetModel = LocalWhisperSTT.isParakeetModelId(modelId);
+        this.isSherpaModel = sherpaSpec(modelId) !== undefined;
+        this.isSherpaStreamingModel = sherpaSpec(modelId)?.streaming === true;
         configureTransformersCache();
 
         // Tune the streaming loop for this specific model's characteristics.
@@ -327,6 +350,11 @@ export class LocalWhisperSTT extends EventEmitter {
 
     private static isParakeetModelId(modelId: string): boolean {
         return modelId.toLowerCase().includes('parakeet');
+    }
+
+    /** Catalog-based (not name-based): sherpa ids are HF repo ids with no shared substring. */
+    private static isSherpaModelId(modelId: string): boolean {
+        return sherpaSpec(modelId) !== undefined;
     }
 
     /**
@@ -378,6 +406,17 @@ export class LocalWhisperSTT extends EventEmitter {
         if (LocalWhisperSTT.isParakeetModelId(modelId)) {
             return { intervalMs: 500, minAudioMs: 400, skipAgreement: true };
         }
+        // sherpa-onnx. Streaming exports (online zipformer/paraformer) decode
+        // each 200ms of audio in a few ms and produce deterministic,
+        // monotonically growing text, so they get the aggressive profile and
+        // skip LocalAgreement-2. Offline exports (SenseVoice, paraformer)
+        // re-decode the whole segment per tick at RTF ~0.02, which is cheap
+        // enough for the standard cadence but gains nothing from a faster one.
+        if (LocalWhisperSTT.isSherpaModelId(modelId)) {
+            return sherpaSpec(modelId)?.streaming
+                ? { intervalMs: 500, minAudioMs: 300, skipAgreement: true }
+                : { intervalMs: 1500, minAudioMs: 800, skipAgreement: false };
+        }
         return { intervalMs: 1500, minAudioMs: 800, skipAgreement: false };
     }
 
@@ -387,6 +426,23 @@ export class LocalWhisperSTT extends EventEmitter {
         this.language = key || 'auto';
         if (this.isNemotronModel) this.resolveAndApplyNemotronLanguage();
         if (this.isParakeetModel) this.resolveAndApplyParakeetLanguage();
+        if (this.isSherpaModel) this.maybePushSherpaLanguageToWorker();
+    }
+
+    /**
+     * Sends the app's language key to a sherpa engine when it changes. Only
+     * SenseVoice consumes it (it takes an explicit language token); the other
+     * exports are single-language or self-detecting and ignore it. Sent only on
+     * change, like the prompt and Nemotron's lang_id, because a change rebuilds
+     * the SenseVoice recognizer.
+     */
+    private maybePushSherpaLanguageToWorker(): void {
+        if (!this.isSherpaModel) return;
+        if (!this.worker || !this.workerReady) return; // pushed in flushPending after ready
+        const key = this.language || 'auto';
+        if (key === this.sherpaLanguageSentToWorker) return;
+        this.sherpaLanguageSentToWorker = key;
+        this.worker.postMessage({ type: 'setLanguage', language: key, channelId: this.nemotronChannelId });
     }
     setCredentials(_credPath: string): void {}
 
@@ -756,7 +812,7 @@ export class LocalWhisperSTT extends EventEmitter {
             // cursor so the NEXT tick resends the full open segment with
             // nemotronReset:true, forcing a clean NemotronEngine.reset() +
             // full re-decode instead of silently gapping the lost audio.
-            if (this.isNemotronModel) this.nemotronSentSamples = 0;
+            if (this.usesDeltaProtocol) this.nemotronSentSamples = 0;
             this.emit('error', new Error(
                 `Local Whisper streaming task ${stuckTaskId ?? '?'} did not return within ${LocalWhisperSTT.STREAMING_WATCHDOG_MS}ms — worker likely stuck, unblocking next tick.`
             ));
@@ -809,7 +865,12 @@ export class LocalWhisperSTT extends EventEmitter {
         //
         // Gating on the delta makes every dispatch process at least one whole
         // chunk, which is what produces incremental partial text.
-        if (this.isNemotronModel) {
+        if (this.isSherpaStreamingModel) {
+            // No fixed engine chunk size (unlike Nemotron): dispatch whenever
+            // there is at least 200ms of new audio. Below that the engine would
+            // just buffer it and return the same text, wasting a round trip.
+            if (open.samples.length - this.nemotronSentSamples < 3200) return;
+        } else if (this.isNemotronModel) {
             if (open.samples.length - this.nemotronSentSamples < NEMOTRON_CHUNK_SAMPLES) {
                 // NOT a stall — deliberately does not call recordStreamingStall().
                 //
@@ -844,7 +905,12 @@ export class LocalWhisperSTT extends EventEmitter {
         // always creates a fresh ArrayBuffer, never a SharedArrayBuffer.
         let copy: Float32Array<ArrayBuffer>;
         let nemotronReset = false;
-        if (this.isNemotronModel) {
+        if (this.isSherpaStreamingModel) {
+            // Plain delta: sherpa's online engine consumes whatever it is given.
+            nemotronReset = this.nemotronSentSamples === 0;
+            copy = open.samples.slice(this.nemotronSentSamples);
+            this.nemotronSentSamples = open.samples.length;
+        } else if (this.isNemotronModel) {
             // Send only what's new since the last tick, truncated to a WHOLE
             // number of engine chunks. The remainder stays behind the cursor
             // rather than being shipped as a sliver the engine would just
@@ -1058,7 +1124,15 @@ export class LocalWhisperSTT extends EventEmitter {
 
         let outgoing = audio;
         let nemotronReset = false;
-        if (this.isNemotronModel) {
+        if (this.isSherpaStreamingModel) {
+            // Same delta contract as the streaming ticks: only what the engine
+            // has not seen yet, with `nemotronReset` marking a segment start.
+            nemotronReset = this.nemotronSentSamples === 0;
+            outgoing = audio.length > this.nemotronSentSamples
+                ? audio.slice(this.nemotronSentSamples)
+                : new Float32Array(0);
+            this.nemotronSentSamples = 0;
+        } else if (this.isNemotronModel) {
             // `audio` is the segment's FULL samples (VAD hands over the whole
             // closed segment here, not just the tail). Only the part beyond
             // what streaming ticks already sent is new. This also covers a
@@ -1635,7 +1709,7 @@ export class LocalWhisperSTT extends EventEmitter {
                     // nemotron-rnnt only: same rewind as the watchdog path
                     // above — this dispatch's samples never landed, so the
                     // cursor would otherwise overcount what the engine has.
-                    if (this.isNemotronModel) this.nemotronSentSamples = 0;
+                    if (this.usesDeltaProtocol) this.nemotronSentSamples = 0;
                 }
                 if (msg.message.includes('Failed to load model')) {
                     // The load is over; the ready deadline must not fire a
@@ -1671,7 +1745,7 @@ export class LocalWhisperSTT extends EventEmitter {
             // a now-dead worker never reached the engine — a stale cursor
             // would make the segment's eventual final dispatch a mis-sliced
             // tail-only delta with nemotronReset:false. (2026-08-14 review.)
-            if (this.isNemotronModel) this.nemotronSentSamples = 0;
+            if (this.usesDeltaProtocol) this.nemotronSentSamples = 0;
             // Free the shared ONNX gate slot — Whisper's session is gone.
             if (this.slotRelease) { this.slotRelease(); this.slotRelease = null; }
             // Dual-channel Nemotron: the registry's OWN 'error' listener
@@ -1733,7 +1807,7 @@ export class LocalWhisperSTT extends EventEmitter {
             // Same delta-cursor rewind as the 'error' handler above — a
             // dead worker means dispatched-but-unprocessed audio, and a
             // stale cursor mis-slices the segment's final dispatch.
-            if (this.isNemotronModel) this.nemotronSentSamples = 0;
+            if (this.usesDeltaProtocol) this.nemotronSentSamples = 0;
             // A LIVE session just lost its worker, and nothing restarts one. This
             // used to surface only `if (hadInFlight)`: a worker that died while idle
             // (between utterances) emitted NOTHING, `worker` kept pointing at the
@@ -1785,6 +1859,7 @@ export class LocalWhisperSTT extends EventEmitter {
         // for whichever transcribe/pushAudio arrives next).
         this.maybePushPromptToWorker();
         this.maybePushNemotronLangToWorker();
+        this.maybePushSherpaLanguageToWorker();
         const queued = this.pendingAudio.splice(0);
         queued.forEach(({ audio, nemotronReset }) => this.sendTranscribe(audio, false, nemotronReset));
         if (this.isDrainingFinals && queued.length === 0 && this.drainingFinalsInFlight === 0 && this.worker) {

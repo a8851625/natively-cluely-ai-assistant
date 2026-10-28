@@ -20,6 +20,11 @@ export interface CaptureSessionHandlers {
   onEnded(reason: string): void;
 }
 
+export interface CaptureDevice {
+  id: string;
+  name: string;
+}
+
 export interface CaptureSession {
   id: string;
   label: string;
@@ -71,6 +76,9 @@ class CaptureHost {
   private ready: Promise<BrowserWindowType> | null = null;
   private markReady: (() => void) | null = null;
   private pending = new Map<string, Pending>();
+  /** In-flight enumerateDevices() calls, keyed by requestId. */
+  private deviceRequests = new Map<string, { resolve(devices: CaptureDevice[]): void; timer: NodeJS.Timeout }>();
+  private nextDeviceRequest = 1;
   private live = new Map<string, CaptureSessionHandlers>();
   private idleTimer: NodeJS.Timeout | null = null;
   private nextId = 1;
@@ -93,6 +101,39 @@ class CaptureHost {
     });
   }
 
+  /**
+   * The machine's input devices, asked of Chromium.
+   *
+   * Only used when the native module is absent (see AudioDevices): on Windows
+   * that is the documented fallback case, on macOS it is a development build
+   * forced with NATIVELY_FORCE_RENDERER_AUDIO=1. Enumeration is the ONE thing
+   * the native module did that the capture page cannot do from the wrappers,
+   * and without it the mic picker renders "No microphones found." while
+   * capture itself works — which reads as "the mic is broken".
+   *
+   * Resolves to [] on any failure: an empty picker is the pre-existing
+   * behaviour, so nothing is worse than before.
+   */
+  async listInputDevices(timeoutMs = 5_000): Promise<CaptureDevice[]> {
+    let win: BrowserWindowType;
+    try {
+      this.cancelIdleClose();
+      win = await this.ensureWindow();
+    } catch {
+      return [];
+    }
+    const requestId = `devices-${this.nextDeviceRequest++}`;
+    return new Promise<CaptureDevice[]>((resolve) => {
+      const timer = setTimeout(() => {
+        if (!this.deviceRequests.delete(requestId)) return;
+        resolve([]);
+        this.scheduleIdleClose();
+      }, timeoutMs);
+      this.deviceRequests.set(requestId, { resolve, timer });
+      win.webContents.send(CAPTURE_COMMAND_CHANNEL, { type: 'enumerate', requestId });
+    });
+  }
+
   private close(id: string): void {
     const wasLive = this.live.delete(id);
     const pending = this.pending.get(id);
@@ -104,7 +145,7 @@ class CaptureHost {
     this.scheduleIdleClose();
   }
 
-  private send(command: { type: 'stop'; id: string }): void {
+  private send(command: { type: 'stop'; id: string } | { type: 'enumerate'; requestId: string }): void {
     const win = this.win;
     if (win && !win.isDestroyed()) win.webContents.send(CAPTURE_COMMAND_CHANNEL, command);
   }
@@ -113,6 +154,22 @@ class CaptureHost {
     if (!event || typeof event !== 'object') return;
     if (event.type === 'ready') {
       this.markReady?.();
+      return;
+    }
+    if (event.type === 'devices') {
+      const requestId = String(event.requestId ?? '');
+      const request = this.deviceRequests.get(requestId);
+      if (!request) return;
+      this.deviceRequests.delete(requestId);
+      clearTimeout(request.timer);
+      const devices = Array.isArray(event.devices)
+        ? event.devices
+            .filter((d: any) => d && typeof d.id === 'string' && typeof d.name === 'string')
+            .map((d: any) => ({ id: d.id, name: d.name }))
+        : [];
+      if (event.message) console.warn(`[AudioFallback] enumerateDevices failed: ${event.message}`);
+      request.resolve(devices);
+      this.scheduleIdleClose();
       return;
     }
     const id = String(event.id ?? '');

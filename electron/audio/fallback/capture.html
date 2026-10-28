@@ -103,10 +103,31 @@ function stop({ id }) {
   try { s.context.close(); } catch {}
 }
 
+// Device enumeration for the wrappers (AudioDevices.getInputDevicesWithFallback).
+// Without the native module this page is the only thing in the process that can
+// see the machine's inputs at all, so the mic picker would otherwise be empty
+// ("No microphones found.") even though capture itself works. Labels are only
+// populated once the page holds a microphone grant; callers get stable ids
+// either way, and a label-less list is still better than an empty one.
+async function enumerate({ requestId }) {
+  try {
+    const devices = (await navigator.mediaDevices.enumerateDevices())
+      .filter((d) => d.kind === 'audioinput')
+      // Chromium's two pseudo-entries: the OS default and the
+      // communications default. The real devices follow them.
+      .filter((d) => d.deviceId !== 'default' && d.deviceId !== 'communications')
+      .map((d) => ({ id: d.deviceId, name: d.label || 'Microphone' }));
+    bridge.emit({ type: 'devices', requestId, devices });
+  } catch (e) {
+    bridge.emit({ type: 'devices', requestId, devices: [], message: errorText(e) });
+  }
+}
+
 bridge.onCommand((command) => {
   if (!command || typeof command !== 'object') return;
   if (command.type === 'start') start(command);
   else if (command.type === 'stop') stop(command);
+  else if (command.type === 'enumerate') enumerate(command);
 });
 bridge.emit({ type: 'ready' });
 </script>

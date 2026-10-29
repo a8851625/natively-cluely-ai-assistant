@@ -99,6 +99,34 @@ Deferred:
 
 ---
 
+## 2b. 打包踩坑记录（2026-10-30，已加防护）
+
+`npm run build`（渲染层）会 `rimraf dist dist-electron`，所以「构建 → 打包」这个最自然的顺序
+**会把主进程 bundle 删掉**。而 electron-builder 的 `build.files` 是 glob，**匹配不到就静默跳过**，
+于是打包"成功"、签名"成功"，装出来的 app 里只有 `dist/` + `node_modules/` + `native-module/`，
+`package.json` 的 `main` 指向 asar 里不存在的 `dist-electron/electron/main.js`——启动后只有一行
+stdout 就卡住，看起来像代码 bug。
+
+已在 `scripts/package-app.js` 加前置检查：`dist/index.html` 与 `dist-electron/electron/main.js`
+缺任何一个就报错退出（并打印该跑哪个命令），由 `scripts/__tests__/packageAppBuildOutputs2026_10_30.test.mjs`
+钉住。正确顺序：
+
+```bash
+npm run build                      # 会删掉 dist-electron
+NATIVELY_CORE_SMOKE=1 node scripts/build-electron.js   # 必须补回来
+node scripts/package-app.js --config electron-builder.local.cjs --mac --arm64 --dir \
+  -c.mac.icon=assets/icon.icns
+```
+
+同一轮还踩到两个操作坑，记下来：
+
+- **不要在仓库根目录跑 `npx asar extract-file <asar> package.json`** —— 它把解出来的文件写到
+  cwd，会直接覆盖仓库的 `package.json`（scripts/build 全没了）。要检查 asar 内容用
+  `npx asar list` 或 `grep -a` 直接扫 asar 二进制。
+- **替换 `/Applications/*.app` 前先杀掉旧实例**。旧进程不会因为 bundle 被替换而退出，它会继续
+  从已删除的 inode 运行，屏幕上那个"能用"的窗口其实是老版本；同时它还会占着单实例锁，
+  让新实例启动即退出。
+
 ## 3. 打包 / 安装（local build）
 
 - `premium/` and `natively-api/` are absent, so premium features (Modes Manager,

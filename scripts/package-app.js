@@ -176,6 +176,35 @@ function recoverFromKilledRun() {
   try { fs.unlinkSync(DISGUISE_MARKER); } catch { /* already cleared */ }
 }
 
+// A package built without the compile outputs is a hollow .app. electron-builder
+// matches `build.files` as globs and silently skips a pattern that matches
+// nothing, so a missing dist-electron/ still produces a correctly signed app
+// whose package.json points at a main entry that is not in the asar. It launches
+// to an error window (or a stalled process) with no useful log, and it looks like
+// a code bug for as long as it takes to think of the asar. Refuse here instead.
+//
+// This is easy to hit on purpose: `npm run build` (the renderer) rims dist AND
+// dist-electron, so the natural build→package sequence deletes the main process
+// bundle unless build:electron is run again in between.
+{
+  const required = [
+    { rel: 'dist/index.html', hint: 'npm run build' },
+    {
+      rel: path.join('dist-electron', 'electron', 'main.js'),
+      hint: 'npm run build:electron (or NATIVELY_CORE_SMOKE=1 node scripts/build-electron.js when the private premium/ submodule is absent)',
+    },
+  ];
+  const missing = required.filter((entry) => !fs.existsSync(path.join(__dirname, '..', entry.rel)));
+  if (missing.length > 0) {
+    console.error('[package-app] Refusing to package: build output is missing.');
+    for (const entry of missing) {
+      console.error(`[package-app]   missing ${entry.rel} — run: ${entry.hint}`);
+    }
+    console.error('[package-app]   (`npm run build` deletes dist-electron; rebuild it before packaging.)');
+    process.exit(1);
+  }
+}
+
 // An installer built without the calendar client secret ships a calendar that
 // can never connect (scripts/lib/calendar-client-secret.cjs). Stop before
 // electron-builder runs, so the native addons are never touched. Unpacked `dir`

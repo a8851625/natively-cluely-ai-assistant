@@ -35,6 +35,13 @@ export type WhisperModelId =
   | 'csukuangfj/sherpa-onnx-streaming-zipformer-multi-zh-hans-int8-2023-12-13'
   | 'csukuangfj/sherpa-onnx-paraformer-zh-int8-2025-10-07'
   | 'csukuangfj/sherpa-onnx-streaming-paraformer-trilingual-zh-cantonese-en'
+  // ── Qwen3-ASR (Alibaba) — a third local runtime (transcribe.cpp, GGUF/ggml,
+  //    Metal/Vulkan). An audio-LLM (bidirectional encoder + Qwen3 causal LM),
+  //    which is why neither transformers.js, sherpa-onnx nor node-llama-cpp can
+  //    run it. Auto-detects 30 languages, built-in punctuation, and measurably
+  //    better on zh/en code-switching, Cantonese and accented Mandarin than any
+  //    sherpa export. See electron/audio/qwen/qwenCatalog.ts.
+  | 'handy-computer/Qwen3-ASR-0.6B-gguf'
   // Nemotron 3.5 ASR Streaming — NVIDIA's cache-aware FastConformer-RNNT,
   // multilingual, genuinely chunked/streaming (not simulated like every other
   // entry above). Int4 ONNX export via onnx-community. Bypasses
@@ -85,8 +92,11 @@ export interface WhisperModelInfo {
    * (electron/audio/sherpa/) instead of onnxruntime-node. Online keeps engine
    * state across calls and is fed deltas; offline re-decodes the whole segment
    * on every call.
+   * `'qwen3-asr'` runs on the transcribe.cpp bindings (electron/audio/qwen/)
+   * instead of any ONNX runtime. Always whole-segment: Qwen3-ASR has no
+   * streaming mode outside the vLLM backend.
    */
-  sessionLayout?: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt' | 'sherpa-online' | 'sherpa-offline';
+  sessionLayout?: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt' | 'sherpa-online' | 'sherpa-offline' | 'qwen3-asr';
   /**
    * Set when this catalog entry is not yet functional and must not be
    * surfaced in any user-facing model picker. Everything else about the
@@ -160,7 +170,7 @@ export interface WorkerInitMessage {
   // Routes the worker between the transformers.js pipeline() path (undefined /
   // 'encoder-decoder' / 'single') and the raw-ONNX engines
   // ('nemotron-rnnt', 'parakeet-tdt'). See WhisperModelInfo.sessionLayout for the source of truth.
-  sessionLayout?: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt' | 'sherpa-online' | 'sherpa-offline';
+  sessionLayout?: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt' | 'sherpa-online' | 'sherpa-offline' | 'qwen3-asr';
   // parakeet-tdt only: which engine runs it, decided on the main process by
   // parakeet/aneBackend.ts resolveParakeetBackend(). 'coreml-ane' (Apple
   // Silicon with the helper built) also carries the helper's path, which the

@@ -94,6 +94,10 @@ test('English-only guard derives from the catalog and correctly marks multilingu
 // excluded from the two Whisper-family tests below, which assert the
 // English-only / 99-language split.
 const isSherpa = (m) => m.sessionLayout === 'sherpa-online' || m.sessionLayout === 'sherpa-offline';
+// Qwen3-ASR is multilingual but BOUNDED (30 documented languages), so the
+// "multilingual ⇒ every language" invariant below — which describes the Whisper
+// family — does not apply to it. It has its own assertion further down.
+const isQwen = (m) => m.sessionLayout === 'qwen3-asr';
 
 test('English-only models lock both selects and allow only the English variants', () => {
   for (const m of MODEL_CATALOG.filter((x) => !x.multilingual && !isSherpa(x))) {
@@ -110,7 +114,8 @@ test('English-only models lock both selects and allow only the English variants'
 
 test('multilingual Whisper-family models allow every language but the Parakeet-only ones, including auto, but no accent conditioning', () => {
   const whisperMultilingual = MODEL_CATALOG.filter(
-    (m) => m.multilingual && m.sessionLayout !== 'nemotron-rnnt' && m.sessionLayout !== 'parakeet-tdt' && !isSherpa(m),
+    (m) => m.multilingual && m.sessionLayout !== 'nemotron-rnnt' && m.sessionLayout !== 'parakeet-tdt'
+      && !isSherpa(m) && !isQwen(m),
   );
   assert.ok(whisperMultilingual.length > 0, 'catalog must contain multilingual Whisper checkpoints');
   for (const m of whisperMultilingual) {
@@ -124,6 +129,33 @@ test('multilingual Whisper-family models allow every language but the Parakeet-o
     );
     assert.ok(s.allowedLanguageKeys.includes('auto'), `${m.id}: Whisper supports auto-detect`);
   }
+});
+
+test('Qwen3-ASR offers exactly the 30 languages it documents plus auto', async () => {
+  const QWEN_ID = 'handy-computer/Qwen3-ASR-0.6B-gguf';
+  const s = getLocalModelLanguageSupport(QWEN_ID);
+  assert.equal(s.languageSelectable, true, 'Qwen3-ASR takes a per-call language hint');
+  assert.equal(s.accentSelectable, false);
+  assert.ok(s.allowedLanguageKeys.includes('auto'), 'auto-detect is the default and must be offered');
+
+  // The documented set comes from the runtime's capabilities.languages; assert
+  // against the catalog copy so a typo there is caught, not just a mismatch.
+  const { QWEN_MODELS } = await import(
+    pathToFileURL(path.resolve(__dirname, '../../../../dist-electron/electron/audio/qwen/qwenCatalog.js')).href
+  );
+  const documented = QWEN_MODELS.find((m) => m.id === QWEN_ID).languages;
+  const expected = Object.keys(RECOGNITION_LANGUAGES)
+    .filter((k) => k === 'auto' || documented.includes(RECOGNITION_LANGUAGES[k].iso639))
+    .sort();
+  assert.deepEqual([...s.allowedLanguageKeys].sort(), expected);
+
+  // Bounded, not universal: a language the model does not document must not be
+  // offered, or the select would silently force a wrong language.
+  assert.ok(!s.allowedLanguageKeys.includes('ukrainian'), 'uk is not in the documented 30');
+  assert.ok(s.allowedLanguageKeys.includes('chinese'));
+  assert.ok(s.allowedLanguageKeys.includes('japanese'));
+  assert.ok(s.allowedLanguageKeys.includes('korean'));
+  assert.ok(s.allowedLanguageKeys.includes('hindi'));
 });
 
 test('Parakeet TDT allows exactly the 25 European languages it supports plus auto', () => {

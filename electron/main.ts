@@ -1065,7 +1065,37 @@ type PermissionReason =
   | 'mic-zero-fill'
   | 'mac-same-device-input-output'
   | 'system-audio-stuck'
-  | 'output-route-mismatch';
+  | 'output-route-mismatch'
+  | 'mac-deaf-system-tap';
+
+/**
+ * Peak-to-peak below this is the hardware noise floor, not audio. Mirrors
+ * `DEFAULT_MEANINGFUL_PEAK_TO_PEAK` in systemAudioHealthClassifier.mjs.
+ */
+const SYSTEM_AUDIO_MEANINGFUL_PEAK = 100;
+/** How long a Core Audio tap may deliver only the noise floor before we probe it. */
+const SYSTEM_AUDIO_ZERO_FILL_ESCALATION_MS = 20_000;
+/** Rebuilds allowed per meeting before the banner becomes terminal. */
+const SYSTEM_AUDIO_ZERO_FILL_MAX_REBUILDS = 2;
+/** Probe tap lifetime — long enough for several 60ms chunks plus tap warm-up. */
+const SYSTEM_AUDIO_PROBE_MS = 2_500;
+
+/**
+ * DC-offset-invariant loudness of one PCM16LE chunk, sampled the same way the
+ * health classifier does it (every Nth frame) so the two agree on "silent".
+ */
+function chunkPeakToPeak(chunk: Buffer): number {
+  if (!Buffer.isBuffer(chunk) || chunk.length < 2) return 0;
+  let min = 32767;
+  let max = -32768;
+  const stride = Math.max(2, (chunk.length >> 5) & ~1);
+  for (let i = 0; i + 1 < chunk.length; i += stride) {
+    const sample = chunk.readInt16LE(i);
+    if (sample < min) min = sample;
+    if (sample > max) max = sample;
+  }
+  return max - min;
+}
 function formatPermissionMessage(reason: PermissionReason, extra?: { device?: string; captured?: string }): string {
   const isMac = process.platform === 'darwin';
   switch (reason) {
@@ -1134,6 +1164,11 @@ function formatPermissionMessage(reason: PermissionReason, extra?: { device?: st
       return `macOS can't tap ${extra?.device ?? 'this device'} while it's also the active mic. Switch input to the built-in mic, or output to the built-in speakers.`;
     case 'system-audio-stuck':
       return 'If your meeting app outputs to a different device (headset, virtual cable, second display), switch it to your default output.';
+    case 'mac-deaf-system-tap':
+      // macOS-only: a Core Audio tap that started successfully but never
+      // received a frame of real audio. See noteSystemAudioZeroFill.
+      if (!isMac) return formatPermissionMessage('system-audio-stuck');
+      return 'Natively is not hearing the meeting. The system-audio tap is running but only ever received silence — stop and start the recording again, or restart Natively.';
     case 'output-route-mismatch':
       // Windows-only emitter (per-endpoint output peaks); the wording is
       // platform-neutral regardless.
@@ -1182,6 +1217,9 @@ function permissionTitleKey(reason: PermissionReason): string {
       return 'Input and Output Are the Same Device';
     case 'system-audio-stuck':
       return 'No System Audio for 8s';
+    case 'mac-deaf-system-tap':
+      if (!isMac) return permissionTitleKey('system-audio-stuck');
+      return 'System Audio Is Silent';
     case 'output-route-mismatch':
       return 'Meeting Audio on Another Device';
   }
@@ -1454,7 +1492,7 @@ import { disguiseAppName } from './utils/disguiseAppName'
 import { disguiseIconRelativePath, shouldSetMacDockIcon } from './utils/disguiseIcon'
 import { createPageTitleGuard } from './utils/windowTitleGuard'
 import { createStealthProtectionLoop } from './utils/stealthProtection'
-import { resolveTrayIcon } from './utils/trayIcon'
+import { resolveTrayIcon, type TrayIconChoice } from './utils/trayIcon'
 import { appUserModelIdForDisguise } from './utils/windowsTaskbarPolicy'
 import { shouldOpenExternally } from './utils/windowOpenPolicy'
 import { ensureNativeModuleAbi } from './utils/nativeModuleGuard'
@@ -4563,6 +4601,149 @@ export class AppState {
    * the originating call site is still identifiable. setupAudioRecoveryHandler
    * is also called here so every wire-up path gets recovery for free.
    */
+  /**
+   * Track a system capture that has only ever produced the noise floor and
+   * escalate it to a probe + rebuild (see the field comment above).
+   *
+   * Cheap on the hot path: one sampled peak scan per chunk, same stride the
+   * health classifier uses, and the whole thing short-circuits as soon as the
+   * capture carries real signal.
+   */
+  private noteSystemAudioZeroFill(capture: SystemAudioCapture, chunk: Buffer, nowMs: number): void {
+    // Only the capture that owns the field may drive a rebuild (F-102).
+    if (this.systemAudioCapture !== capture) return;
+    if (!this.isMeetingActive || this._isQuitting) return;
+    if (this._systemAudioZeroFillRecoveryInFlight) return;
+    if (this._systemAudioRecoveryInProgress || this._defaultOutputSwitchInProgress) return;
+    // A capture that has carried real signal is not deaf. Losing the signal
+    // later is the route watcher's and the recovery handler's business.
+    if (this._systemAudioHeardSignal) {
+      this._systemAudioZeroFillSinceMs = 0;
+      return;
+    }
+    const peak = chunkPeakToPeak(chunk);
+    if (peak > SYSTEM_AUDIO_MEANINGFUL_PEAK) {
+      this._systemAudioZeroFillSinceMs = 0;
+      return;
+    }
+    this._systemAudioZeroFillPeak = peak;
+    if (this._systemAudioZeroFillSinceMs === 0) {
+      this._systemAudioZeroFillSinceMs = nowMs;
+      return;
+    }
+    if (nowMs - this._systemAudioZeroFillSinceMs < SYSTEM_AUDIO_ZERO_FILL_ESCALATION_MS) return;
+    void this.recoverDeafSystemAudio(capture, nowMs - this._systemAudioZeroFillSinceMs, peak);
+  }
+
+  /**
+   * Probe the tapped device with an independent, short-lived capture. Returns
+   * the loudest peak-to-peak it saw; 0 when nothing played during the window.
+   */
+  private async probeSystemAudioPeak(): Promise<number> {
+    let probe: SystemAudioCapture | null = null;
+    let peak = 0;
+    try {
+      probe = new SystemAudioCapture(this._lastRequestedOutputDeviceId);
+      probe.on('data', (chunk: Buffer) => {
+        const chunkPeak = chunkPeakToPeak(chunk);
+        if (chunkPeak > peak) peak = chunkPeak;
+      });
+      probe.start();
+      await new Promise<void>(resolve => setTimeout(resolve, SYSTEM_AUDIO_PROBE_MS));
+    } finally {
+      try {
+        await probe?.destroy();
+      } catch {
+        /* best effort — the probe is disposable */
+      }
+    }
+    return peak;
+  }
+
+  /**
+   * Rebuild a capture whose tap never received real audio. Mirrors the error
+   * recovery path (destroy+recreate, never stop()+start(): the native teardown
+   * is deferred, so a synchronous start() would hit "Capture already running").
+   */
+  private async rebuildDeafSystemCapture(previous: SystemAudioCapture): Promise<void> {
+    if (this.systemAudioCapture !== previous) return;
+    this.systemAudioCapture = null;
+    this._sysSttRateApplied = false;
+    await previous.destroy();
+    if (!this.isMeetingActive || this._isQuitting) return;
+    // Ownership revalidation (F-102): another flow may have rebuilt mid-await.
+    if (this.systemAudioCapture) return;
+    const fresh = new SystemAudioCapture(this._lastRequestedOutputDeviceId);
+    this.systemAudioCapture = fresh;
+    // Fresh capture gets a fresh silence window; the rebuild budget persists
+    // for the meeting so a genuinely silent call cannot cause a rebuild loop.
+    this._systemAudioZeroFillSinceMs = 0;
+    this._systemAudioZeroFillPeak = 0;
+    this.wireSystemCapture(fresh, '(DeafTapRebuild)');
+    fresh.start();
+    console.log('[SystemAudioDiag] system capture rebuilt after a deaf tap.');
+  }
+
+  private async recoverDeafSystemAudio(
+    capture: SystemAudioCapture,
+    silentForMs: number,
+    lastPeak: number,
+  ): Promise<void> {
+    this._systemAudioZeroFillRecoveryInFlight = true;
+    const silentForSec = Math.round(silentForMs / 1000);
+    try {
+      const probePeak = await this.probeSystemAudioPeak();
+      if (!this.isMeetingActive || this._isQuitting) return;
+      if (this.systemAudioCapture !== capture) return;
+      const backend = (() => {
+        try {
+          return capture.getActiveBackend?.() ?? '?';
+        } catch {
+          return '?';
+        }
+      })();
+      console.warn(
+        `[SystemAudioDiag] tap silent for ${silentForSec}s (peak ${lastPeak}, backend=${backend}); independent probe tap peak ${probePeak}.`,
+      );
+      if (probePeak <= SYSTEM_AUDIO_MEANINGFUL_PEAK) {
+        // Nothing is playing through the tapped device — a rebuild would only
+        // churn captures. Tell the user once, then re-arm the window.
+        this._systemAudioZeroFillSinceMs = Date.now();
+        this.sendAudioCaptureFailed({
+          channel: 'system',
+          message: formatPermissionMessage('mac-deaf-system-tap'),
+          titleKey: permissionTitleKey('mac-deaf-system-tap'),
+          attempt: this._systemAudioZeroFillRebuilds,
+          maxAttempts: SYSTEM_AUDIO_ZERO_FILL_MAX_REBUILDS,
+          terminal: false,
+          stuck: true,
+        });
+        return;
+      }
+      if (this._systemAudioZeroFillRebuilds >= SYSTEM_AUDIO_ZERO_FILL_MAX_REBUILDS) {
+        this._systemAudioZeroFillSinceMs = Date.now();
+        this.sendAudioCaptureFailed({
+          channel: 'system',
+          message: formatPermissionMessage('mac-deaf-system-tap'),
+          titleKey: permissionTitleKey('mac-deaf-system-tap'),
+          attempt: this._systemAudioZeroFillRebuilds,
+          maxAttempts: SYSTEM_AUDIO_ZERO_FILL_MAX_REBUILDS,
+          terminal: true,
+        });
+        return;
+      }
+      this._systemAudioZeroFillRebuilds++;
+      console.warn(
+        `[SystemAudioDiag] probe hears audio (peak ${probePeak}) but the live tap does not — rebuilding system capture (#${this._systemAudioZeroFillRebuilds}).`,
+      );
+      await this.rebuildDeafSystemCapture(capture);
+    } catch (err: any) {
+      console.warn('[SystemAudioDiag] deaf-tap recovery failed:', err?.message || err);
+    } finally {
+      this._systemAudioZeroFillRecoveryInFlight = false;
+    }
+  }
+
   private wireSystemCapture(capture: SystemAudioCapture, label: string = ''): void {
     const prefix = label ? `[Main] ${label} ` : '[Main] ';
     let chunkCount = 0;
@@ -4746,6 +4927,8 @@ export class AppState {
         this._systemAudioQuietSinceMs = heardAt ?? (firstChunkAtMs || now);
         this._systemAudioHeardSignal = heardAt != null;
       }
+      // Deaf-tap escalation — see noteSystemAudioZeroFill.
+      this.noteSystemAudioZeroFill(capture, chunk, now);
       // A capture that has delivered audio for a minute proves the last
       // recovery worked, so later unrelated failures get a fresh 3-attempt
       // budget. Before, three failures spread over hours exhausted it for the
@@ -6226,6 +6409,28 @@ export class AppState {
   private _systemAudioSuccessfulRestarts = 0;
   private _systemAudioConsecutiveFailures = 0;
 
+  // ── Deaf-tap recovery (2026-10-29) ───────────────────────────────────────
+  // A Core Audio tap can start "successfully" and then deliver nothing but the
+  // hardware noise floor for an entire meeting: `[CoreAudioTap] Aggregate
+  // device started successfully`, chunks flowing at the right rate, every
+  // sample inside ±50. Reproduced on macOS 14.6.1 / M-series: the meeting's
+  // tap stayed under peak 100 for 500+ chunks while a freshly created tap read
+  // the very same call at peak ~18000. The health classifier calls that
+  // 'sustained-zero-valued-silence' and only LOGS it (macOS never needed
+  // Screen Recording for a Core Audio tap), so the interviewer transcript stays
+  // empty with no banner: the user sees a working call, a working mic
+  // transcript, and silence from the far side.
+  //
+  // Escalation: after SYSTEM_AUDIO_ZERO_FILL_ESCALATION_MS of pure noise floor,
+  // probe with a SECOND short-lived capture. Audio on the probe proves the live
+  // tap is deaf (not a silent call), so rebuild it; a silent probe means the
+  // tapped device really is quiet, so tell the user instead of churning
+  // captures.
+  private _systemAudioZeroFillSinceMs = 0;
+  private _systemAudioZeroFillPeak = 0;
+  private _systemAudioZeroFillRebuilds = 0;
+  private _systemAudioZeroFillRecoveryInFlight = false;
+
   private setupAudioRecoveryHandler(): void {
     if (!this.systemAudioCapture) return;
 
@@ -7487,6 +7692,11 @@ export class AppState {
     // PR #173: Reset audio recovery state for fresh session
     this._systemAudioRecoveryInProgress = false;
     this._systemAudioRecoveryAttempts = 0;
+    // Deaf-tap escalation budget is per meeting, like the recovery attempts.
+    this._systemAudioZeroFillSinceMs = 0;
+    this._systemAudioZeroFillPeak = 0;
+    this._systemAudioZeroFillRebuilds = 0;
+    this._systemAudioZeroFillRecoveryInFlight = false;
     this._systemAudioConsecutiveFailures = 0;
     this._micRecoveryAttempts = 0;
     if (this._systemAudioRecoveryTimer) {
@@ -9332,12 +9542,36 @@ export class AppState {
   public showTray(): void {
     if (this.tray) return;
 
-    // The template (16 px + @2x beside it) loads as-is so the @2x representation
-    // survives; only the full-size fallback art is resized. See utils/trayIcon.ts.
-    const choice = resolveTrayIcon({
+    const choice = this.resolveTrayIconChoice();
+    console.log(choice.template ? '[Tray] Using template icon:' : '[Tray] Template icon not found, using default:', choice.path);
+
+    const loadedTrayIcon = nativeImage.createFromPath(choice.path);
+    const trayIcon = choice.resizeTo16 ? loadedTrayIcon.resize({ width: 16, height: 16 }) : loadedTrayIcon;
+    trayIcon.setTemplateImage(choice.template);
+
+    this.tray = new Tray(trayIcon)
+    this.tray.setToolTip(this.trayDisplayName())
+    this.updateTrayMenu();
+
+    // Double-click to show window
+    this.tray.on('double-click', () => {
+      this.centerAndShowWindow()
+    })
+  }
+
+  /**
+   * Which image the menu-bar icon loads. The disguise mode decides: a disguised
+   * app showing the Natively logo in the menu bar defeats the disguise, since
+   * that is the one surface visible without clicking anything.
+   * See utils/trayIcon.ts for the per-platform art selection.
+   */
+  private resolveTrayIconChoice(): TrayIconChoice {
+    return resolveTrayIcon({
       isPackaged: app.isPackaged,
       resourcesPath: process.resourcesPath,
       appPath: app.getAppPath(),
+      platform: process.platform,
+      disguise: this.disguiseMode,
       exists: (p) => {
         try {
           return require('fs').existsSync(p);
@@ -9347,20 +9581,31 @@ export class AppState {
         }
       },
     });
-    console.log(choice.template ? '[Tray] Using template icon:' : '[Tray] Template icon not found, using default:', choice.path);
+  }
 
-    const loadedTrayIcon = nativeImage.createFromPath(choice.path);
-    const trayIcon = choice.resizeTo16 ? loadedTrayIcon.resize({ width: 16, height: 16 }) : loadedTrayIcon;
-    trayIcon.setTemplateImage(choice.template);
+  /** The name the tray presents: the disguise's name, never 'Natively' while disguised. */
+  private trayDisplayName(): string {
+    return disguiseAppName(this.disguiseMode, process.platform).trim();
+  }
 
-    this.tray = new Tray(trayIcon)
-    this.tray.setToolTip('Natively') // This tooltip might also need update if we change global shortcut, but global shortcut is removed.
+  /**
+   * Repaint the menu-bar icon, tooltip and menu after a disguise change.
+   * No-op when there is no tray (undetectable hides it on macOS; Windows
+   * destroys it), because showTray() reads the mode itself when it runs later.
+   */
+  public refreshTrayForDisguise(): void {
+    if (!this.tray || this.tray.isDestroyed()) return;
+    const choice = this.resolveTrayIconChoice();
+    const image = nativeImage.createFromPath(choice.path);
+    if (image.isEmpty()) {
+      console.warn(`[Tray] Disguise icon could not be loaded: ${choice.path}`);
+      return;
+    }
+    const trayImage = choice.resizeTo16 ? image.resize({ width: 16, height: 16 }) : image;
+    trayImage.setTemplateImage(choice.template);
+    this.tray.setImage(trayImage);
     this.updateTrayMenu();
-
-    // Double-click to show window
-    this.tray.on('double-click', () => {
-      this.centerAndShowWindow()
-    })
+    console.log(`[Tray] Icon repainted for disguise '${this.disguiseMode}': ${choice.path}`);
   }
 
   public updateTrayMenu() {
@@ -9371,8 +9616,10 @@ export class AppState {
 
     console.log('[Main] updateTrayMenu called. Screenshot Accelerator:', screenshotAccel);
 
-    // Update tooltip for verification
-    this.tray.setToolTip('Natively');
+    // The tooltip and the first item both used to hardcode 'Natively', which
+    // leaks the identity on hover even when the icon was disguised.
+    const displayName = this.trayDisplayName();
+    this.tray.setToolTip(displayName);
 
     // Helper to format accelerator for display (e.g. CommandOrControl+H -> Cmd+H)
     const formatAccel = (accel: string) => {
@@ -9392,7 +9639,7 @@ export class AppState {
 
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: 'Show Natively',
+        label: `Show ${displayName}`,
         click: () => {
           this.centerAndShowWindow()
         }
@@ -10191,6 +10438,12 @@ export class AppState {
       console.warn(`[AppState] Disguise icon not found: ${iconPath}`);
     }
 
+    // 4b. Menu-bar icon, tooltip and menu label. The tray is the one surface a
+    // disguised app shows without any interaction, so it follows the disguise
+    // too — otherwise a 'Terminal' Dock tile sat next to the Natively logo in
+    // the menu bar. No-op when there is no tray yet (showTray reads the mode).
+    this.refreshTrayForDisguise();
+
     // 5. Update Window Titles. guardWindowTitle() keeps the renderer's
     // <title> ("Natively") from clobbering the disguise title while undetectable
     // (the page loads async, after this). In normal mode the guard is inert.
@@ -10657,11 +10910,12 @@ async function initializeApp() {
   // waiting for IPC registration. The service rehydrates from disk
   // synchronously in its constructor.
   try {
-    const { LocalModelDownloadService, createWhisperDownloadProvider, createNemotronDownloadProvider, createSherpaDownloadProvider } = require('./services/LocalModelDownloadService');
+    const { LocalModelDownloadService, createWhisperDownloadProvider, createNemotronDownloadProvider, createSherpaDownloadProvider, createQwenDownloadProvider } = require('./services/LocalModelDownloadService');
     const downloadService = LocalModelDownloadService.getInstance();
     downloadService.registerProvider(createWhisperDownloadProvider());
     downloadService.registerProvider(createNemotronDownloadProvider());
     downloadService.registerProvider(createSherpaDownloadProvider());
+    downloadService.registerProvider(createQwenDownloadProvider());
     // No reranker download provider. It existed to lazily fetch the 283MB
     // bge-reranker-base on first mode activation; that model was removed on
     // 2026-09-04 (it measured WORSE than no reranker at all), and the 24MB

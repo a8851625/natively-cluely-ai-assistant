@@ -2,6 +2,13 @@ const { execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
+// ─── Local stable code-signing identity ───
+// Name of the self-signed certificate created by
+// scripts/create-local-signing-identity.js. See resolveLocalSigningIdentity() for
+// why signing with it (instead of `--sign -`) is what keeps macOS TCC grants
+// (Screen Recording / System Audio Recording) alive across rebuilds.
+const LOCAL_SIGNING_IDENTITY_NAME = 'Natively Local Signing';
+
 // ─── Packed native-arch guard ───
 // better-sqlite3 + keytar ship a SINGLE compiled binary each (no per-arch
 // loader), so a build on an Apple-Silicon Mac can silently embed arm64 binaries
@@ -297,6 +304,27 @@ exports.default = async function (context) {
     // to opt in when testing entitlement/permission behavior locally.
     const hardenedOpt = process.env.NATIVELY_ADHOC_HARDENED === '1' ? '--options runtime ' : '';
 
+    // ── Local stable identity (replaces `--sign -`) ──
+    // Ad-hoc signing derives the code identity from the binary's CONTENTS, so every
+    // rebuild produces a new cdhash and a designated requirement like
+    //   identifier "com.apple.corespeechd" and cdhash H"<content hash>"
+    // macOS TCC stores the requirement it matched when the user granted a permission,
+    // so the next build never matches: the checkbox stays ON, the grant silently does
+    // not apply, Screen Recording is re-prompted on every launch, and the Core Audio
+    // tap starts but delivers zero-filled buffers (the 'deaf tap' — see
+    // native-module/src/speaker/core_audio.rs).
+    //
+    // A self-signed code-signing certificate (see scripts/create-local-signing-identity.js)
+    // yields instead
+    //   identifier "com.apple.corespeechd" and certificate leaf = H"<cert hash>"
+    // which is stable across rebuilds, so one grant survives every repackage. When no
+    // such identity exists we fall back to ad-hoc exactly as before.
+    const localSignIdentity = resolveLocalSigningIdentity();
+    const signOpt = localSignIdentity ? `--sign "${localSignIdentity}"` : '--sign -';
+    if (localSignIdentity) {
+        console.log(`[Ad-Hoc Signing] Using local stable identity "${localSignIdentity}" so macOS TCC grants survive rebuilds.`);
+    }
+
     // ── Step 2: Ad-hoc sign the application (DEV / local distribution only) ──
     // Resolve the path to the entitlements file so V8 gets JIT memory permissions
     const entitlementsPath = path.join(context.packager.info.projectDir, 'build', 'entitlements.mac.plist');
@@ -314,8 +342,8 @@ exports.default = async function (context) {
         // --force: replace existing signature
         // --deep: sign nested code (frameworks, helpers, .dylib, .node)
         // --entitlements: attach entitlements to the top-level app bundle
-        // --sign -: ad-hoc signature
-        execSync(`codesign --force --deep ${hardenedOpt}--entitlements "${entitlementsPath}" --sign - "${appPath}"`, { stdio: 'inherit' });
+        // --sign <identity>|-: local stable identity when one exists, else ad-hoc
+        execSync(`codesign --force --deep ${hardenedOpt}--entitlements "${entitlementsPath}" ${signOpt} "${appPath}"`, { stdio: 'inherit' });
         console.log('[Ad-Hoc Signing] Successfully signed the application with entitlements.');
     } catch (error) {
         console.error('[Ad-Hoc Signing] Failed to sign the application:', error);
@@ -341,3 +369,25 @@ exports.default = async function (context) {
 // hook above, so the extra properties are inert at build time.
 module.exports.verifyPackedArchFamilies = verifyPackedArchFamilies;
 module.exports.verifyPackedNativeArch = verifyPackedNativeArch;
+module.exports.resolveLocalSigningIdentity = resolveLocalSigningIdentity;
+
+/**
+ * The name of the self-signed local code-signing identity, when the developer has
+ * created one (scripts/create-local-signing-identity.js). Signing with it makes the
+ * designated requirement certificate-based instead of cdhash-based, so macOS TCC
+ * grants (Screen Recording / System Audio Recording) and keychain ACLs survive
+ * every rebuild. Overridable with NATIVELY_LOCAL_SIGN_IDENTITY.
+ *
+ * Returns null when absent — the caller then keeps the historical ad-hoc behaviour.
+ */
+function resolveLocalSigningIdentity() {
+    const override = process.env.NATIVELY_LOCAL_SIGN_IDENTITY;
+    if (override === '') return null; // explicit opt-out
+    if (override) return override;
+    try {
+        const out = execSync('security find-identity -v -p codesigning', { encoding: 'utf8' });
+        return out.includes(LOCAL_SIGNING_IDENTITY_NAME) ? LOCAL_SIGNING_IDENTITY_NAME : null;
+    } catch {
+        return null;
+    }
+}

@@ -48,6 +48,7 @@ import { configureTransformersCache, getModelSizeMb, purgeCorruptModel } from '.
 import { clearLoadSentinel, modelPreloader, writeLoadSentinel } from './whisper/modelPreloader';
 import { buildWorkerInitMessage } from './whisper/inferenceConfig';
 import { sherpaSpec } from './sherpa/sherpaCatalog';
+import { qwenSpec } from './qwen/qwenCatalog';
 import { resolveWhisperWorkerPath } from './whisper/workerPathResolver';
 import type { WhisperModelId, WorkerOutMessage } from './whisper/types';
 import { acquireOnnxSlotWithin, hasEnoughMemoryForModelSize, getMinFreeGBForModelSize } from '../utils/onnxThreadConfig';
@@ -211,6 +212,14 @@ export class LocalWhisperSTT extends EventEmitter {
     private readonly isSherpaModel: boolean;
     private readonly isSherpaStreamingModel: boolean;
     /**
+     * A Qwen3-ASR model (transcribe.cpp/GGUF — see
+     * electron/audio/qwen/qwenCatalog.ts). Always whole-segment: the model has
+     * no streaming mode outside the vLLM backend, so it never uses the delta
+     * protocol — it is re-sent the growing VAD segment on every tick, exactly
+     * like an offline sherpa export.
+     */
+    private readonly isQwenModel: boolean;
+    /**
      * Delta protocol: the worker's engine accumulates audio, so each dispatch
      * carries only the samples since the previous one and `nemotronReset` marks
      * the first dispatch of a segment. Nemotron (RNNT cache) and streaming
@@ -265,8 +274,9 @@ export class LocalWhisperSTT extends EventEmitter {
     // maybePushPromptToWorker). Reset to null in beginWorkerTermination —
     // a future worker starts without this state applied and must be re-sent.
     private nemotronLangIdSentToWorker: number | null = null;
-    /** sherpa-onnx only: last language key pushed to the worker (see maybePushSherpaLanguageToWorker). */
-    private sherpaLanguageSentToWorker: string | null = null;
+    /** Segment-engine only (sherpa-onnx, Qwen3-ASR): last language key pushed to
+     *  the worker (see maybePushSegmentLanguageToWorker). */
+    private segmentLanguageSentToWorker: string | null = null;
 
     // Gap-flush: ensures a segment closes even if Rust SilenceSuppressor
     // stops sending audio before VAD's hangover completes.
@@ -287,12 +297,21 @@ export class LocalWhisperSTT extends EventEmitter {
     // larger models (whisper-medium ~3-5s, whisper-large ~5-10s); piling up
     // ticks against an in-flight inference just churns the JS event loop.
     private streamingTimer: ReturnType<typeof setTimeout> | null = null;
+    /** performance.now() at which the pending streaming tick fires (0 = none). */
+    private streamingTimerDueAt = 0;
     // Tuned per model family at construction time (see resolveStreamingProfile).
     private readonly streamingIntervalBaseMs: number;
     private readonly streamingMinAudioMs: number;
     private readonly skipAgreement: boolean;
     private static readonly STREAMING_INTERVAL_MAX_MS = 12000;
     private static readonly MAX_SEGMENT_MS = 14000;       // soft-commit before VAD's 15s hard-flush
+    /**
+     * Characters that make up a space-delimited (Latin/digit) word. Used by
+     * longestCommonPrefix to decide whether a divergence really split a word —
+     * CJK ideographs and kana are deliberately NOT included, because those
+     * scripts have no word delimiter to snap back to.
+     */
+    private static readonly LATIN_WORD_CHAR = /[A-Za-z0-9_'\u2019-]/;
     /** How long a cold start may wait for a shared ONNX session before failing loudly. */
     private static readonly ONNX_SLOT_WAIT_MS = 20_000;
     // Backoff: count consecutive ticks where we couldn't dispatch (worker
@@ -327,6 +346,7 @@ export class LocalWhisperSTT extends EventEmitter {
         this.isParakeetModel = LocalWhisperSTT.isParakeetModelId(modelId);
         this.isSherpaModel = sherpaSpec(modelId) !== undefined;
         this.isSherpaStreamingModel = sherpaSpec(modelId)?.streaming === true;
+        this.isQwenModel = qwenSpec(modelId) !== undefined;
         configureTransformersCache();
 
         // Tune the streaming loop for this specific model's characteristics.
@@ -409,13 +429,37 @@ export class LocalWhisperSTT extends EventEmitter {
         // sherpa-onnx. Streaming exports (online zipformer/paraformer) decode
         // each 200ms of audio in a few ms and produce deterministic,
         // monotonically growing text, so they get the aggressive profile and
-        // skip LocalAgreement-2. Offline exports (SenseVoice, paraformer)
-        // re-decode the whole segment per tick at RTF ~0.02, which is cheap
-        // enough for the standard cadence but gains nothing from a faster one.
+        // skip LocalAgreement-2.
+        //
+        // Offline exports (SenseVoice, paraformer) are stateless whole-segment
+        // decoders at RTF ~0.018-0.025 — a full 14s segment costs ~250-350ms,
+        // less than Qwen's 326ms — so they get the same cadence and for the
+        // same measured reasons: the 1500ms interval plus a confirming tick
+        // put ~3s between speaking and seeing text, and LocalAgreement-2 could
+        // never confirm anything in Chinese anyway (no spaces to snap to).
         if (LocalWhisperSTT.isSherpaModelId(modelId)) {
             return sherpaSpec(modelId)?.streaming
                 ? { intervalMs: 500, minAudioMs: 300, skipAgreement: true }
-                : { intervalMs: 1500, minAudioMs: 800, skipAgreement: false };
+                : { intervalMs: 600, minAudioMs: 400, skipAgreement: true };
+        }
+        // Qwen3-ASR (transcribe.cpp). Whole-segment re-decode, measured on
+        // Metal (M1 Max) at 87ms for a 1s segment up to 326ms for the 14s
+        // MAX_SEGMENT_MS ceiling — i.e. the decode is never the bottleneck, so
+        // the profile is tuned entirely for cadence:
+        //
+        //  * 500ms interval: a tick that finds nothing is one peek and a
+        //    subtraction, and a tick that finds work is bounded by 326ms, so
+        //    polling this fast cannot pile up (streamingTaskInFlight drops
+        //    ticks while a decode is out).
+        //  * skipAgreement: LocalAgreement-2 cost a FULL extra tick (1.2s) and
+        //    bought nothing here — every pass decodes the whole growing
+        //    segment, so the newest result is strictly more complete than the
+        //    previous one. Measured with the old two-tick rule: 2.4s+ before
+        //    the first word appeared, which is the "2-3 second delay" users
+        //    reported. Each partial carries confidence 0.7, i.e. explicitly a
+        //    preview, so a revised tail is expected and harmless.
+        if (qwenSpec(modelId)) {
+            return { intervalMs: 500, minAudioMs: 300, skipAgreement: true };
         }
         return { intervalMs: 1500, minAudioMs: 800, skipAgreement: false };
     }
@@ -426,22 +470,27 @@ export class LocalWhisperSTT extends EventEmitter {
         this.language = key || 'auto';
         if (this.isNemotronModel) this.resolveAndApplyNemotronLanguage();
         if (this.isParakeetModel) this.resolveAndApplyParakeetLanguage();
-        if (this.isSherpaModel) this.maybePushSherpaLanguageToWorker();
+        if (this.isSherpaModel || this.isQwenModel) this.maybePushSegmentLanguageToWorker();
     }
 
     /**
-     * Sends the app's language key to a sherpa engine when it changes. Only
-     * SenseVoice consumes it (it takes an explicit language token); the other
-     * exports are single-language or self-detecting and ignore it. Sent only on
-     * change, like the prompt and Nemotron's lang_id, because a change rebuilds
-     * the SenseVoice recognizer.
+     * Sends the app's language key to a segment engine when it changes.
+     *
+     * sherpa: only SenseVoice consumes it (it takes an explicit language
+     * token); the other exports are single-language or self-detecting and
+     * ignore it. A change rebuilds the SenseVoice recognizer, which is why it
+     * is sent only on change.
+     *
+     * Qwen3-ASR: the language is a per-call option, so the engine just stores it
+     * (no reload); 'auto' or an unsupported code means "omit it" and let the
+     * model detect the language itself.
      */
-    private maybePushSherpaLanguageToWorker(): void {
-        if (!this.isSherpaModel) return;
+    private maybePushSegmentLanguageToWorker(): void {
+        if (!this.isSherpaModel && !this.isQwenModel) return;
         if (!this.worker || !this.workerReady) return; // pushed in flushPending after ready
         const key = this.language || 'auto';
-        if (key === this.sherpaLanguageSentToWorker) return;
-        this.sherpaLanguageSentToWorker = key;
+        if (key === this.segmentLanguageSentToWorker) return;
+        this.segmentLanguageSentToWorker = key;
         this.worker.postMessage({ type: 'setLanguage', language: key, channelId: this.nemotronChannelId });
     }
     setCredentials(_credPath: string): void {}
@@ -551,6 +600,11 @@ export class LocalWhisperSTT extends EventEmitter {
     }
 
     private maybePushNemotronLangToWorker(): void {
+        // Nemotron-only field: for every other family this used to post a
+        // stray `setLanguage {langId: 0}` on the first flush, which a segment
+        // engine (sherpa/qwen) then interpreted as setLanguage('auto') — a
+        // spurious language apply before the real one. Guard instead.
+        if (!this.isNemotronModel) return;
         if (!this.worker || !this.workerReady) return; // pushed in flushPending after ready
         if (this.nemotronLangId === this.nemotronLangIdSentToWorker) return;
         this.worker.postMessage({ type: 'setLanguage', langId: this.nemotronLangId, channelId: this.nemotronChannelId });
@@ -716,6 +770,9 @@ export class LocalWhisperSTT extends EventEmitter {
                 this.trackedSegmentId = id;
                 this.segmentOpenedAt = performance.now();
                 this.firstPartialEmittedForSegment = 0;
+                // Don't make a fresh segment wait out the rest of the current
+                // poll interval before its first dispatch.
+                this.nudgeStreamingTick(this.streamingMinAudioMs);
             }
         }
 
@@ -762,10 +819,12 @@ export class LocalWhisperSTT extends EventEmitter {
         this.scheduleNextStreamingTick();
     }
 
-    private scheduleNextStreamingTick(): void {
+    private scheduleNextStreamingTick(delayMs: number = this.streamingNextDelayMs): void {
         if (!this.isActive) return;
+        this.streamingTimerDueAt = performance.now() + delayMs;
         this.streamingTimer = setTimeout(() => {
             this.streamingTimer = null;
+            this.streamingTimerDueAt = 0;
             // Wrap tick in try/catch — a throw here (worker disposed mid-post,
             // VAD nulled, etc.) would otherwise leave the chain unscheduled
             // and silently kill all partials for the rest of the session.
@@ -779,6 +838,28 @@ export class LocalWhisperSTT extends EventEmitter {
             }
             this.scheduleNextStreamingTick();
         }, this.streamingNextDelayMs);
+    }
+
+    /**
+     * Pull the next tick forward, but never push it back.
+     *
+     * The loop is a free-running self-chaining setTimeout, so a segment that
+     * opens just after a tick waits almost a full interval for its first
+     * dispatch. On a 1200ms profile that was up to 1.2s of pure dead time
+     * before the first partial of every utterance. When the VAD reports a new
+     * segment we reschedule to the earliest moment that segment can actually
+     * be dispatched (streamingMinAudioMs), which removes that wait without
+     * adding any work: an earlier tick that still finds too little audio is
+     * free.
+     */
+    private nudgeStreamingTick(delayMs: number): void {
+        if (!this.isActive || !this.streamingTimer) return;
+        const now = performance.now();
+        if (this.streamingTimerDueAt > 0 && this.streamingTimerDueAt - now <= delayMs) return;
+        clearTimeout(this.streamingTimer);
+        this.streamingTimer = null;
+        this.streamingTimerDueAt = 0;
+        this.scheduleNextStreamingTick(delayMs);
     }
 
     private stopStreamingLoop(): void {
@@ -1088,11 +1169,18 @@ export class LocalWhisperSTT extends EventEmitter {
         const len = Math.min(a.length, b.length);
         let i = 0;
         while (i < len && a[i] === b[i]) i++;
-        // Snap back to a word boundary ONLY when we've split mid-word — i.e.
-        // both sides of position i are non-whitespace. Without this guard the
-        // snap-back walked through the entire prefix and produced ''.
-        if (i < a.length && /\S/.test(a[i]) && i > 0 && /\S/.test(a[i - 1])) {
-            while (i > 0 && /\S/.test(a[i - 1])) i--;
+        // Snap back to a word boundary ONLY when the divergence splits a LATIN
+        // word. Space-delimited scripts need it: emitting "wor" of "world"
+        // makes the UI flicker on the last token. But Chinese/Japanese/Korean
+        // are written without spaces, so "the previous character is
+        // non-whitespace" holds for the entire sentence — the old
+        // `/\S/.test(a[i - 1])` walk therefore ran all the way to 0, this method
+        // returned '', and `handleStreamingPartial` never found a prefix longer
+        // than the last emitted text. Net effect: for EVERY offline CJK model
+        // (SenseVoice, paraformer, Qwen3-ASR) no partial was ever emitted, so
+        // the overlay stayed blank while finals still landed in the DB.
+        if (i > 0 && i < a.length && LocalWhisperSTT.LATIN_WORD_CHAR.test(a[i - 1]) && LocalWhisperSTT.LATIN_WORD_CHAR.test(a[i])) {
+            while (i > 0 && LocalWhisperSTT.LATIN_WORD_CHAR.test(a[i - 1])) i--;
         }
         return a.slice(0, i);
     }
@@ -1859,7 +1947,7 @@ export class LocalWhisperSTT extends EventEmitter {
         // for whichever transcribe/pushAudio arrives next).
         this.maybePushPromptToWorker();
         this.maybePushNemotronLangToWorker();
-        this.maybePushSherpaLanguageToWorker();
+        this.maybePushSegmentLanguageToWorker();
         const queued = this.pendingAudio.splice(0);
         queued.forEach(({ audio, nemotronReset }) => this.sendTranscribe(audio, false, nemotronReset));
         if (this.isDrainingFinals && queued.length === 0 && this.drainingFinalsInFlight === 0 && this.worker) {

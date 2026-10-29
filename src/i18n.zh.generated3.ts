@@ -377,4 +377,5 @@ export const ZH_GENERATED3: Record<string, string> = {
     "Add my keys": "添加我的密钥",
     "Details": "详情",
     "Press keys...": "按下按键…",
+    "System Audio Is Silent": "系统音频没有声音",
 };

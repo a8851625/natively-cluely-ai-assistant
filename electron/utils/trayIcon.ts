@@ -10,6 +10,8 @@
 
 import path from 'node:path';
 
+import type { DisguiseModeName } from './disguiseAppName';
+
 export interface TrayIconChoice {
   path: string;
   /** macOS template image (drawn by the system in the menu-bar colour). */
@@ -23,8 +25,22 @@ export function resolveTrayIcon(opts: {
   resourcesPath: string;
   appPath: string;
   exists: (p: string) => boolean;
+  /** Defaults to the running platform; injected so both branches are testable. */
+  platform?: NodeJS.Platform;
+  /** Active disguise mode. 'none' keeps the Natively template art. */
+  disguise?: DisguiseModeName;
 }): TrayIconChoice {
   const root = opts.isPackaged ? opts.resourcesPath : opts.appPath;
+
+  // A disguised app must not show the Natively logo in the menu bar — that is
+  // the surface a proctor reads without clicking anything. The disguise wins
+  // over the shipped template, falling through only when its art is missing.
+  const disguise = opts.disguise ?? 'none';
+  if (disguise !== 'none') {
+    const disguised = resolveDisguiseTrayIcon(disguise, opts.platform ?? process.platform, root, opts.exists);
+    if (disguised) return disguised;
+  }
+
   const candidates = [
     path.join(root, 'assets', 'iconTemplate.png'),
     // Dev fallback, as before.
@@ -37,4 +53,29 @@ export function resolveTrayIcon(opts: {
     ? path.join(opts.resourcesPath, 'assets', 'icon.png')
     : path.join(opts.appPath, 'src/components/icon.png');
   return { path: fallback, template: false, resizeTo16: true };
+}
+
+/**
+ * The tray art for one disguise mode, or null when neither candidate exists.
+ *
+ * macOS draws menu-bar items as template images (the system re-tints pure black
+ * + alpha for light/dark), so each mode has a purpose-drawn glyph in
+ * assets/fakeicon/mac/tray/<mode>Template.png (16 px + a 32 px @2x pair, see
+ * scripts/generate-tray-disguise-icons.mjs). Windows tray icons are coloured, so
+ * it reuses the mode's app icon, scaled to 16 px — which is also the macOS
+ * fallback if the glyph is ever missing.
+ */
+function resolveDisguiseTrayIcon(
+  mode: Exclude<DisguiseModeName, 'none'>,
+  platform: NodeJS.Platform,
+  root: string,
+  exists: (p: string) => boolean,
+): TrayIconChoice | null {
+  if (platform === 'darwin') {
+    const glyph = path.join(root, 'assets', 'fakeicon', 'mac', 'tray', `${mode}Template.png`);
+    if (exists(glyph)) return { path: glyph, template: true, resizeTo16: false };
+  }
+  const icon = path.join(root, 'assets', 'fakeicon', platform === 'win32' ? 'win' : 'mac', `${mode}.png`);
+  if (exists(icon)) return { path: icon, template: false, resizeTo16: true };
+  return null;
 }

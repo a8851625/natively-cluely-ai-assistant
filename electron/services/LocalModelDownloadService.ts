@@ -709,7 +709,7 @@ export class LocalModelDownloadService {
         // Providers with their own dedicated UI (e.g. 'reranker') correctly
         // do NOT need this legacy channel — they only ever use the unified
         // `local-model:${provider}:download-state` channel below.
-        if (entry.provider === 'whisper' || entry.provider === 'nemotron' || entry.provider === 'sherpa') {
+        if (entry.provider === 'whisper' || entry.provider === 'nemotron' || entry.provider === 'sherpa' || entry.provider === 'qwen') {
           if (entry.status === 'complete') {
             try { wc.send('local-whisper-download-complete', { modelId: entry.modelId }); } catch { /* ignore */ }
           } else if (entry.status === 'error') {
@@ -806,7 +806,7 @@ export class LocalModelDownloadService {
       // resolveLocalModelProviderName); other providers ('reranker', …) have
       // their own id spaces this helper knows nothing about.
       if (
-        (e.provider === 'whisper' || e.provider === 'nemotron' || e.provider === 'sherpa') &&
+        (e.provider === 'whisper' || e.provider === 'nemotron' || e.provider === 'sherpa' || e.provider === 'qwen') &&
         resolveLocalModelProviderName(e.modelId) !== e.provider
       ) {
         console.log(`[LocalModelDownloadService] rehydrate: dropping stale wrong-provider entry ${e.provider}:${e.modelId} (real provider: ${resolveLocalModelProviderName(e.modelId)})`);
@@ -877,6 +877,10 @@ export function resolveLocalModelProviderName(modelId: string): string {
   // dtype variants) through their own provider. Routing them to 'whisper'
   // would make the whisper provider look for files that can never exist.
   if (layout === 'sherpa-online' || layout === 'sherpa-offline') return 'sherpa';
+  // Qwen3-ASR models download as one GGUF from a flat HF repo through the
+  // transcribe.cpp provider. Same reasoning as sherpa: the whisper provider
+  // would look for `onnx/` files that do not exist.
+  if (layout === 'qwen3-asr') return 'qwen';
   return 'whisper';
 }
 
@@ -1154,6 +1158,69 @@ export function createSherpaDownloadProvider(): LocalModelDownloadProvider {
     buildInitMessage(modelId: string): unknown {
       const { buildWorkerInitMessage } = require('../audio/whisper/inferenceConfig') as typeof import('../audio/whisper/inferenceConfig');
       // channelId: dedicated one-shot worker, never shared — see the doc comment.
+      return { ...(buildWorkerInitMessage(modelId) as object), channelId: 'download' };
+    },
+  };
+}
+
+/**
+ * Qwen3-ASR provider — the transcribe.cpp/GGUF family (see
+ * electron/audio/qwen/). Same shape as the sherpa provider: whisperWorker.ts is
+ * reused as the download-and-load worker, and its `qwen3-asr` init branch
+ * fetches the model's single GGUF via qwenFiles.downloadQwenModel() before
+ * constructing the engine, so "download" and "load" stay one lifecycle.
+ *
+ * The worker is one-shot and never shared (spawnWorker() makes a fresh dedicated
+ * Worker per download), so the fixed 'download' channelId below can never
+ * collide with a real mic/system channel.
+ */
+export function createQwenDownloadProvider(): LocalModelDownloadProvider {
+  return {
+    name: 'qwen',
+    isModelCached(modelId: string): boolean {
+      const { getModelsDir } = require('../audio/whisper/modelManager') as typeof import('../audio/whisper/modelManager');
+      const { isQwenModelCached } = require('../audio/qwen/qwenFiles') as typeof import('../audio/qwen/qwenFiles');
+      return isQwenModelCached(getModelsDir(), modelId);
+    },
+    deletePartial(modelId: string): void {
+      const { getModelsDir } = require('../audio/whisper/modelManager') as typeof import('../audio/whisper/modelManager');
+      const { deletePartialQwenFiles, qwenModelDir } = require('../audio/qwen/qwenFiles') as typeof import('../audio/qwen/qwenFiles');
+      deletePartialQwenFiles(qwenModelDir(getModelsDir(), modelId));
+    },
+    prepareDownload(modelId: string): void {
+      prepareLocalSttDownload(modelId, (id) => this.deletePartial(id));
+    },
+    finishDownload(modelId: string): void {
+      finishLocalSttDownload(modelId);
+    },
+    describeError(message: string): string {
+      return describeLocalSttDownloadError(message);
+    },
+    isDamagedError(message: string): boolean {
+      return isDamagedLocalSttDownload(message);
+    },
+    discardDamaged(modelId: string): void {
+      const { getModelsDir } = require('../audio/whisper/modelManager') as typeof import('../audio/whisper/modelManager');
+      const { discardQwenFiles, qwenModelDir } = require('../audio/qwen/qwenFiles') as typeof import('../audio/qwen/qwenFiles');
+      discardQwenFiles(qwenModelDir(getModelsDir(), modelId));
+    },
+    preflightCheck(): string | null {
+      // Qwen3-ASR needs the transcribe.cpp bindings and their native library;
+      // without them every download would succeed and every load would fail.
+      const { isQwenRuntimeAvailable } = require('../audio/qwen/qwenEngine') as typeof import('../audio/qwen/qwenEngine');
+      if (!isQwenRuntimeAvailable()) {
+        return 'The transcribe.cpp runtime is missing. Reinstall Natively (or run `npm install`) to use the Qwen3-ASR local model.';
+      }
+      return null;
+    },
+    beforeSpawn(): Promise<void> {
+      return prepareLocalSttDownloadEnvironment();
+    },
+    spawnWorker(): Worker {
+      return spawnLocalSttDownloadWorker();
+    },
+    buildInitMessage(modelId: string): unknown {
+      const { buildWorkerInitMessage } = require('../audio/whisper/inferenceConfig') as typeof import('../audio/whisper/inferenceConfig');
       return { ...(buildWorkerInitMessage(modelId) as object), channelId: 'download' };
     },
   };

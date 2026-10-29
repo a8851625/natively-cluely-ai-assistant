@@ -10,9 +10,9 @@
 import fs from 'fs';
 import path from 'path';
 import { sherpaSpec, type SherpaModelSpec } from './sherpaCatalog';
+import { deletePartialFiles, discardModelFiles, downloadFileResumable, fileSize } from '../rangedDownload';
 
 const HF_HOST = 'https://huggingface.co';
-const PART_SUFFIX = '.part';
 
 /** `<modelsDir>/<org>/<name>` — the same folder scheme as every other model. */
 export function sherpaModelDir(cacheDir: string, modelId: string): string {
@@ -59,6 +59,8 @@ export function missingSherpaFiles(cacheDir: string, modelId: string): string[] 
  * model that reported 100% progress and then failed to load with a missing
  * `tokens.txt`. Probing with `Range: bytes=0-0` instead always yields the total
  * via `Content-Range`, on every file size, so this path can resume for real.
+ * That probe/resume loop lives in ../rangedDownload.ts, shared with the
+ * transcribe.cpp (GGUF) family, which needs the identical behaviour.
  */
 export async function downloadSherpaModel(
   cacheDir: string,
@@ -88,12 +90,13 @@ export async function downloadSherpaModel(
 
   for (const file of missing) {
     const dest = path.join(dir, ...file.split('/'));
-    const got = await downloadSherpaFile({
+    const got = await downloadFileResumable({
       url: `${HF_HOST}/${spec.id}/resolve/main/${file.split('/').map(encodeURIComponent).join('/')}`,
       dest,
       fetchImpl,
       sleep,
       attempts,
+      userAgent: 'natively-sherpa',
       onBytes: (n) => {
         const pct = Math.min(99, Math.round(((doneBytes + n) / totalBytes) * 100));
         onProgress?.(pct);
@@ -104,118 +107,14 @@ export async function downloadSherpaModel(
   onProgress?.(100);
 }
 
-function fileSize(p: string): number {
-  try {
-    return fs.statSync(p).size;
-  } catch {
-    return 0;
-  }
-}
-
-/** Total size from `Range: bytes=0-0`, which works even when HEAD has no length. */
-async function probeTotalBytes(url: string, fetchImpl: typeof fetch): Promise<number | null> {
-  const res = await fetchImpl(url, { headers: { Range: 'bytes=0-0' } });
-  if (res.status === 206) {
-    const total = /\/(\d+)\s*$/.exec(res.headers.get('content-range') ?? '')?.[1];
-    if (total) return Number(total);
-  }
-  if (res.ok) {
-    const len = Number(res.headers.get('content-length') ?? 0);
-    if (Number.isFinite(len) && len > 0) return len;
-  }
-  return null;
-}
-
-async function downloadSherpaFile(opts: {
-  url: string;
-  dest: string;
-  fetchImpl: typeof fetch;
-  sleep: (ms: number) => Promise<void>;
-  attempts: number;
-  onBytes?: (n: number) => void;
-}): Promise<number> {
-  const { url, dest, fetchImpl, sleep, attempts, onBytes } = opts;
-  const part = dest + PART_SUFFIX;
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
-
-  let total: number | null = null;
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    try {
-      total = await probeTotalBytes(url, fetchImpl);
-      if (total !== null) break;
-      // No length: fetch it whole and let the response body end define the size.
-      break;
-    } catch (e) {
-      if (attempt === attempts) throw e;
-      await sleep(Math.min(15_000, 800 * attempt * attempt));
-    }
-  }
-
-  for (let attempt = 1; attempt <= attempts; attempt += 1) {
-    const have = fileSize(part);
-    if (total !== null && have === total) break;
-    const headers: Record<string, string> = { 'User-Agent': 'natively-sherpa' };
-    if (have > 0) headers.Range = `bytes=${have}-`;
-    try {
-      const res = await fetchImpl(url, { headers });
-      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status} for ${url}`);
-      // Append on resume, overwrite otherwise.
-      const out = fs.createWriteStream(part, { flags: have > 0 ? 'a' : 'w' });
-      const reader = (res.body as ReadableStream<Uint8Array>).getReader();
-      let written = have;
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        await new Promise<void>((resolve, reject) =>
-          out.write(Buffer.from(value), (err) => (err ? reject(err) : resolve())),
-        );
-        written += value.byteLength;
-        onBytes?.(written);
-      }
-      await new Promise<void>((resolve, reject) => out.end((err?: Error | null) => (err ? reject(err) : resolve())));
-      const got = fileSize(part);
-      if (total !== null && got !== total) throw new Error(`incomplete: ${got}/${total} bytes`);
-      if (total === null) total = got;
-      break;
-    } catch (e) {
-      if (attempt === attempts) throw new Error(`download of ${path.basename(dest)} failed: ${(e as Error).message}`);
-      await sleep(Math.min(15_000, 800 * attempt * attempt));
-    }
-  }
-
-  // Rename last: a `.part` never looks like a usable model file to the cache check.
-  fs.rmSync(dest, { force: true });
-  fs.renameSync(part, dest);
-  return fileSize(dest);
-}
-
 /** Removes `.part` leftovers of an interrupted download, keeping finished files. */
 export function deletePartialSherpaFiles(dir: string): void {
-  let entries: string[];
-  try {
-    entries = fs.readdirSync(dir, { recursive: true } as any) as string[];
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    const name = String(entry);
-    if (!name.endsWith('.part')) continue;
-    try {
-      fs.rmSync(path.join(dir, name), { force: true });
-    } catch {
-      /* a locked leftover is harmless: the next download overwrites it */
-    }
-  }
+  deletePartialFiles(dir);
 }
 
 /** Deletes the whole model folder (used when a download is unrecoverable). */
 export function discardSherpaFiles(dir: string): void {
-  try {
-    fs.rmSync(dir, { recursive: true, force: true });
-  } catch {
-    /* best effort, same contract as the other families */
-  }
+  discardModelFiles(dir);
 }
 
 /** Resolves one of the spec's files to an absolute path. */

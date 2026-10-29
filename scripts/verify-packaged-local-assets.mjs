@@ -81,6 +81,11 @@ const REQUIRED_PACKAGE_DIRS = [
   // with "Cannot find module 'sherpa-onnx-node'" and every sherpa model dies
   // with a terminal local_stt_unavailable.
   'node_modules/sherpa-onnx-node',
+  // The Qwen3-ASR local STT runtime (transcribe.cpp bindings). Same trap shape:
+  // transcribe-cpp is pure JS (koffi FFI), so only its @transcribe-cpp/*
+  // platform package matches **/*.dylib / **/*.so and gets unpacked on its own.
+  'node_modules/transcribe-cpp',
+  'node_modules/koffi',
 ];
 
 // Required asarUnpack globs (kept as a single source of truth for the
@@ -129,6 +134,23 @@ const REQUIRED_ASARUNPACK_GLOBS = [
   // win-{x64,ia32,arm64} and linux-* in one line.
   '**/node_modules/sherpa-onnx-node/**',
   '**/node_modules/sherpa-onnx-*/**',
+  // 2026-10-30: the Qwen3-ASR local STT runtime (transcribe.cpp, GGUF/ggml).
+  // Same class of failure as sherpa above — the JS bindings and the
+  // @transcribe-cpp/* platform package that holds libtranscribe.dylib and the
+  // ggml backends must be unpacked into the same filesystem root, or the
+  // unpacked whisperWorker cannot require() them and every Qwen3-ASR model dies
+  // with a terminal local_stt_unavailable.
+  '**/node_modules/transcribe-cpp/**',
+  '**/node_modules/@transcribe-cpp/**',
+  // transcribe-cpp's only dependency is koffi (its FFI layer). Its native
+  // addon lives in @koromix/koffi-<platform>/ and matched **/*.node on its own,
+  // which is the SAME trap as sherpa: the koffi JS wrapper stayed inside
+  // app.asar while the .node was unpacked, so the ESM import of 'koffi' from
+  // app.asar.unpacked/node_modules/transcribe-cpp/dist/ could not resolve
+  // ("Cannot find package 'koffi'") and every Qwen3-ASR load failed in a
+  // packaged build while working in dev.
+  '**/node_modules/koffi/**',
+  '**/node_modules/@koromix/**',
 ];
 
 // Required built worker scripts (only checked after build:electron has run).

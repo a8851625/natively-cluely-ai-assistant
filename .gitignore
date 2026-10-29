@@ -557,6 +557,7 @@ docs/*
 # not recoverable from the code alone.
 !docs/engineering/
 !docs/engineering/LOCAL_STT_SHERPA.md
+!docs/engineering/LOCAL_STT_QWEN3_ASR.md
 # Local TODO: deferred work for this checkout (Modes Manager UI, remaining i18n
 # languages, packaging gaps). It is the only place the Modes-UI diagnosis and the
 # licence-predicate finding are written down, and it is meant to be read before

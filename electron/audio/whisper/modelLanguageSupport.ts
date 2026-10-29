@@ -50,6 +50,7 @@ import { MODEL_CATALOG } from './modelManager';
 import { RECOGNITION_LANGUAGES, ENGLISH_VARIANTS, PARAKEET_ONLY_LANGUAGE_KEYS } from '../../config/languages';
 import { resolveNemotronLangId } from './nemotron/languageTable';
 import { sherpaSpec } from '../sherpa/sherpaCatalog';
+import { qwenSpec } from '../qwen/qwenCatalog';
 
 export interface LocalModelLanguageSupport {
   /**
@@ -244,6 +245,24 @@ export function getLocalModelLanguageSupport(modelId: string): LocalModelLanguag
       accentSelectable: false,
       // Never empty: the select must show something truthful for a locked model.
       allowedLanguageKeys: fixed.length > 0 ? fixed : ['chinese'],
+    };
+  }
+
+  // Qwen3-ASR: auto-detects all 30 documented languages, and the runtime takes
+  // an optional per-call `language` hint. Every key whose iso639 the model
+  // documents is therefore offered, plus 'auto' — the opposite of a locked
+  // single-language model, and honest: an unsupported code is simply omitted
+  // (auto-detect) rather than being forced into a wrong language.
+  const qwen = qwenSpec(modelId);
+  if (qwen) {
+    const allowed = Object.entries(RECOGNITION_LANGUAGES)
+      .filter(([key, lang]) => key === 'auto' || qwen.languages.includes(lang.iso639))
+      .map(([key]) => key);
+    return {
+      languageSelectable: true,
+      accentSelectable: false,
+      // Never empty: 'auto' is always present and always correct here.
+      allowedLanguageKeys: allowed.length > 0 ? allowed : ['auto'],
     };
   }
 

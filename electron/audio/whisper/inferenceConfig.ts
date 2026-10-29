@@ -153,7 +153,7 @@ export function buildWorkerInitMessage(
     // the transformers.js pipeline() path. Best-effort like the lookups above —
     // a failure here must never prevent the worker from starting; it just
     // means the worker falls back to the default pipeline() path.
-    let sessionLayout: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt' | undefined;
+    let sessionLayout: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt' | 'sherpa-online' | 'sherpa-offline' | 'qwen3-asr' | undefined;
     try {
         const { MODEL_CATALOG } = require('./modelManager');
         sessionLayout = MODEL_CATALOG.find((m: any) => m.id === modelId)?.sessionLayout;
@@ -209,7 +209,7 @@ export function buildWorkerInitMessage(
  */
 export function isWhisperEncoderModel(
     modelId: string,
-    sessionLayout?: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt',
+    sessionLayout?: 'encoder-decoder' | 'single' | 'nemotron-rnnt' | 'parakeet-tdt' | 'sherpa-online' | 'sherpa-offline' | 'qwen3-asr',
 ): boolean {
     if (sessionLayout && sessionLayout !== 'encoder-decoder') return false;
     return /(^|\/)(distil-)?whisper[-/]/i.test(modelId);

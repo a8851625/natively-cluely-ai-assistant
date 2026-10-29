@@ -129,6 +129,14 @@ const buildOptions = {
     // `*.dylib` are already in build.asarUnpack, so packaged builds load it
     // from app.asar.unpacked exactly like onnxruntime-node.
     'sherpa-onnx-node',
+    // transcribe-cpp (the Qwen3-ASR local STT runtime, see electron/audio/qwen/)
+    // has the same shape one level further out: the JS bindings are a thin koffi
+    // (FFI) layer that dlopen()s libtranscribe.dylib plus the ggml backend
+    // libraries from the @transcribe-cpp/<platform> package. Those are real
+    // dynamic libraries esbuild cannot follow, so the package stays external and
+    // is loaded from node_modules at runtime (both `*.dylib`/`*.so`/`*.dll` and
+    // the JS wrapper are in build.asarUnpack, like sherpa).
+    'transcribe-cpp',
     // Heavy native ESM modules with `import.meta.url`-dependent init. Keeping
     // them external lets Node's loader give them a real `import.meta.url`,
     // which the bundled version can't (esbuild's CJS target sets

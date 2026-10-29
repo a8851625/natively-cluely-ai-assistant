@@ -4,6 +4,7 @@ import fs from 'fs';
 import type { WhisperModelId, WhisperModelInfo } from './types';
 import { isCorruptModelFailure } from './loadFailure';
 import { SHERPA_MODELS } from '../sherpa/sherpaCatalog';
+import { QWEN_MODELS } from '../qwen/qwenCatalog';
 
 // env is configured lazily via configureTransformersCache()
 // We import the type only here; the actual require() happens at runtime.
@@ -150,6 +151,24 @@ export const MODEL_CATALOG: WhisperModelInfo[] = [
     status: 'missing' as const,
     streaming: spec.streaming,
     sessionLayout: spec.streaming ? ('sherpa-online' as const) : ('sherpa-offline' as const),
+  })),
+
+  // ── Qwen3-ASR (Alibaba) — a third runtime: transcribe.cpp (GGUF/ggml) with
+  //    Metal/Vulkan acceleration. An audio-LLM, so no ONNX runtime in this tree
+  //    can load it. Generated from electron/audio/qwen/qwenCatalog.ts.
+  //    Measured on M1 Max: RTF 0.024-0.037 on Metal (10-15x realtime on CPU),
+  //    with built-in punctuation and the best zh/en code-switch behaviour of
+  //    any local model here.
+  ...QWEN_MODELS.map((spec): WhisperModelInfo => ({
+    id: spec.id as WhisperModelId,
+    name: spec.name,
+    sizeMb: spec.sizeMb,
+    speed: spec.speed,
+    accuracy: spec.accuracy,
+    multilingual: spec.multilingual,
+    status: 'missing' as const,
+    streaming: spec.streaming,
+    sessionLayout: 'qwen3-asr' as const,
   })),
 ];
 
@@ -536,6 +555,12 @@ function isRepoCached(
     const { isSherpaModelCached } = require('../sherpa/sherpaFiles') as typeof import('../sherpa/sherpaFiles');
     return isSherpaModelCached(cacheDir, modelId);
   }
+  // Qwen3-ASR (transcribe.cpp): one self-contained GGUF per model, so presence
+  // of that file IS the completeness contract.
+  if (sessionLayout === 'qwen3-asr') {
+    const { isQwenModelCached } = require('../qwen/qwenFiles') as typeof import('../qwen/qwenFiles');
+    return isQwenModelCached(cacheDir, modelId);
+  }
 
   if (!dtype) {
     try { return fs.readdirSync(modelDir).length > 0; } catch { return false; }
@@ -569,7 +594,7 @@ export function getResumableDownloadFiles(modelId: string, dtype: string | Recor
   const m = catalogEntry(modelId);
   const layout = m?.sessionLayout;
   if (!m || layout === 'nemotron-rnnt' || layout === 'parakeet-tdt' || layout === 'single'
-      || layout === 'sherpa-online' || layout === 'sherpa-offline') return [];
+      || layout === 'sherpa-online' || layout === 'sherpa-offline' || layout === 'qwen3-asr') return [];
   return loadedOnnxFiles(dtype, m.externalDataFormat, layout).map(f => `onnx/${f}`);
 }
 

@@ -204,6 +204,11 @@ const FAMILY_RULES: Array<{ id: string; label: string; note: string; test: (mode
     // Cantonese models (SenseVoice, realtime Zipformer, Paraformer) and their
     // display names are localised, so a name pattern would be brittle.
     { id: 'sherpa', label: '中文 / 粤语', note: 'sherpa-onnx：SenseVoice、实时 Zipformer、Paraformer — 本地中文识别', test: (m) => /sherpa-onnx/i.test(m.id) },
+    // Qwen3-ASR (transcribe.cpp/GGUF). Matched on id for the same reason as
+    // sherpa: the display name is localised. Listed after sherpa so the
+    // Chinese-first sherpa set keeps the top slot, but it is the strongest
+    // local option for zh/en code-switching and accented Mandarin.
+    { id: 'qwen', label: 'Qwen3-ASR', note: '阿里 Qwen3-ASR：30 种语言自动识别、自带标点 — Metal 加速，中英混说最准', test: (m) => /qwen3-asr/i.test(m.id) },
     { id: 'moonshine', label: 'Moonshine', note: 'Smallest and quickest to start', test: (m) => /^moonshine/i.test(m.name) },
     { id: 'parakeet', label: 'Parakeet', note: 'NVIDIA FastConformer TDT. v2: English; v3: Multilingual (25 languages)', test: (m) => /^parakeet/i.test(m.name) },
     { id: 'nemotron', label: 'Nemotron', note: 'NVIDIA FastConformer-RNNT, real streaming, multilingual', test: (m) => /^nemotron/i.test(m.name) },

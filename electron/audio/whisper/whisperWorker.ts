@@ -294,42 +294,72 @@ async function initParakeetChannel(msg: any, channelId: string): Promise<void> {
   }
 }
 
-// ── sherpa-onnx (Chinese / Cantonese) ─────────────────────────────────
-// A second local runtime beside transformers.js and the raw-ONNX engines.
-// Its addon is N-API, so it loads here in the worker thread like any other
-// module; no Electron rebuild and no ORT session juggling. One engine per
-// channelId, serialized per channel (an online engine holds decoder state and
-// must never see two transcribes interleaved).
-type SherpaEngineLike = import('../sherpa/sherpaEngine').SherpaEngine;
-const sherpaChannels = new Map<string, SherpaEngineLike>();
-const sherpaChains = new Map<string, Promise<void>>();
-function getSherpaChain(channelId: string): Promise<void> {
-  return sherpaChains.get(channelId) ?? Promise.resolve();
+// ── Segment engines: sherpa-onnx (Chinese/Cantonese) + Qwen3-ASR ──────
+// Two non-ONNX local runtimes behind one contract. Both decode a whole VAD
+// segment per call (sherpa's offline exports and Qwen3-ASR) or keep an
+// utterance stream across calls (sherpa's online exports), and both must be
+// serialized per channel — an online sherpa engine holds decoder state and must
+// never see two transcribes interleaved. Keeping one map and one chain means
+// the channel lifecycle (init → transcribe → setLanguage → closeChannel →
+// shutdown) is written once instead of once per runtime.
+type SegmentEngineLike = {
+  readonly streaming: boolean;
+  transcribe(
+    audio: Float32Array,
+    opts?: { reset?: boolean },
+  ): { text: string; language?: string } | Promise<{ text: string; language?: string }>;
+  setLanguage(appLanguageKey: string): void;
+  dispose(): void;
+};
+const segmentChannels = new Map<string, SegmentEngineLike>();
+const segmentChains = new Map<string, Promise<void>>();
+function getSegmentChain(channelId: string): Promise<void> {
+  return segmentChains.get(channelId) ?? Promise.resolve();
 }
-function setSherpaChain(channelId: string, p: Promise<void>): void {
-  sherpaChains.set(channelId, p);
+function setSegmentChain(channelId: string, p: Promise<void>): void {
+  segmentChains.set(channelId, p);
 }
-let sherpaInitChain: Promise<void> = Promise.resolve();
+let segmentInitChain: Promise<void> = Promise.resolve();
+/**
+ * Upper bound on how long a cooperative shutdown waits for an in-flight segment
+ * decode. A 14s segment decodes in ~350ms, so this only matters if the runtime
+ * is wedged; the host's retire watchdog bounds the other side.
+ */
+const SEGMENT_SHUTDOWN_DRAIN_MS = 4000;
 
-async function initSherpaChannel(msg: any, channelId: string): Promise<void> {
+async function initSegmentChannel(msg: any, channelId: string): Promise<void> {
   try {
     const path = require('path');
-    const { downloadSherpaModel } = require('../sherpa/sherpaFiles') as typeof import('../sherpa/sherpaFiles');
-    const { createSherpaEngine } = require('../sherpa/sherpaEngine') as typeof import('../sherpa/sherpaEngine');
     // Files are fetched here (not by the host) so "download" and "load" stay
     // one worker lifecycle, exactly like Nemotron and Parakeet. Progress is
     // reported against the catalog's byte total.
-    await downloadSherpaModel(msg.cacheDir, msg.modelId, (pct: number) => {
+    const reportProgress = (pct: number) => {
       parentPort!.postMessage({ type: 'progress', modelId: msg.modelId, progress: pct, channelId: msg.channelId });
-    });
+    };
     const modelDir = path.join(msg.cacheDir, ...String(msg.modelId).split('/'));
-    // Init carries no language: LocalWhisperSTT pushes the real one with a
-    // `setLanguage` message right after `ready` (flushPending), so starting on
-    // auto-detection avoids loading a recognizer that is rebuilt immediately.
-    const engine = createSherpaEngine(msg.modelId, modelDir, { languageKey: 'auto' });
-    sherpaChannels.set(channelId, engine);
+    let engine: SegmentEngineLike;
+
+    if (msg.sessionLayout === 'qwen3-asr') {
+      const { downloadQwenModel } = require('../qwen/qwenFiles') as typeof import('../qwen/qwenFiles');
+      const { createQwenEngine } = require('../qwen/qwenEngine') as typeof import('../qwen/qwenEngine');
+      await downloadQwenModel(msg.cacheDir, msg.modelId, reportProgress);
+      // Init carries no language: LocalWhisperSTT pushes the real one with a
+      // `setLanguage` message right after `ready` (flushPending), so starting on
+      // auto-detection avoids a second decode pass on the wrong language.
+      engine = await createQwenEngine(msg.modelId, modelDir, { languageKey: 'auto' });
+    } else {
+      const { downloadSherpaModel } = require('../sherpa/sherpaFiles') as typeof import('../sherpa/sherpaFiles');
+      const { createSherpaEngine } = require('../sherpa/sherpaEngine') as typeof import('../sherpa/sherpaEngine');
+      await downloadSherpaModel(msg.cacheDir, msg.modelId, reportProgress);
+      engine = createSherpaEngine(msg.modelId, modelDir, { languageKey: 'auto' });
+    }
+
+    segmentChannels.set(channelId, engine);
     loadedModelId = msg.modelId;
-    console.log(`[WhisperWorker] sherpa ready: ${msg.modelId} (streaming=${engine.streaming}, channel=${channelId})`);
+    console.log(
+      `[WhisperWorker] segment engine ready: ${msg.modelId} ` +
+        `(kind=${msg.sessionLayout}, streaming=${engine.streaming}, channel=${channelId})`,
+    );
     parentPort!.postMessage({ type: 'ready', channelId: msg.channelId });
   } catch (e: any) {
     // Same 'Failed to load model' prefix the other families use: the host's
@@ -342,17 +372,40 @@ parentPort.on('message', async (msg: any) => {
   if (msg.type === 'shutdown') {
     // Cooperative stop — see electron/utils/onnxWorkerShutdown.ts. The host
     // never calls worker.terminate() on this worker: doing that while an ONNX
-    // run() or session load is on this thread aborts the whole app. A message
-    // is only delivered when this thread is idle, so no native call is in
-    // flight here, and process.exit() in a worker thread stops this thread
-    // only. Work still queued behind this message is abandoned on purpose —
-    // the host has already stopped listening for it.
+    // run() or session load is on this thread aborts the whole app. For the
+    // ONNX path a message is only delivered when this thread is idle, so no
+    // native call can be in flight, and process.exit() in a worker thread stops
+    // this thread only. Work still queued behind this message is abandoned on
+    // purpose — the host has already stopped listening for it.
     // The Neural Engine helper would also exit on its own when this thread's
     // pipes close; disposing it first makes that immediate.
     parakeetAneEngine?.dispose();
-    for (const engine of sherpaChannels.values()) engine.dispose();
-    sherpaChannels.clear();
-    process.exit(0);
+    //
+    // SEGMENT ENGINES BREAK THE "idle when the message arrives" ASSUMPTION:
+    // their transcribe() is async and runs the decode on the runtime's own
+    // native thread while this JS thread is free, so `shutdown` CAN arrive
+    // mid-inference. Disposing then frees ggml state under a live call and
+    // aborts the process — reproduced as "GGML_ASSERT(backend) failed" in
+    // ggml-backend.cpp, and a native abort inside a worker thread takes the
+    // whole Electron app down (it is not catchable). Drain the per-channel
+    // chains first: every engine transcribe() is serialized on its channel
+    // chain, so an awaited chain proves nothing is in flight.
+    void (async () => {
+      const pending = [...segmentChains.values()];
+      if (pending.length > 0) {
+        await Promise.race([
+          Promise.allSettled(pending),
+          new Promise((resolve) => setTimeout(resolve, SEGMENT_SHUTDOWN_DRAIN_MS)),
+        ]);
+      }
+      for (const engine of segmentChannels.values()) {
+        try { engine.dispose(); } catch { /* the worker is exiting anyway */ }
+      }
+      segmentChannels.clear();
+      segmentChains.clear();
+      process.exit(0);
+    })();
+    return;
   }
   if (msg.type === 'init') {
     if (msg.sessionLayout === 'nemotron-rnnt') {
@@ -397,12 +450,12 @@ parentPort.on('message', async (msg: any) => {
       });
       return;
     }
-    if (msg.sessionLayout === 'sherpa-online' || msg.sessionLayout === 'sherpa-offline') {
+    if (msg.sessionLayout === 'sherpa-online' || msg.sessionLayout === 'sherpa-offline' || msg.sessionLayout === 'qwen3-asr') {
       // Chained for the same reason as Nemotron/Parakeet: two channels can
       // init one worker back to back, and the second must not race the first.
       const channelId: string = msg.channelId || 'default';
-      sherpaInitChain = sherpaInitChain.then(() => initSherpaChannel(msg, channelId)).catch((chainErr) => {
-        console.error('[WhisperWorker] sherpa init chain error (should be unreachable):', chainErr);
+      segmentInitChain = segmentInitChain.then(() => initSegmentChannel(msg, channelId)).catch((chainErr) => {
+        console.error('[WhisperWorker] segment init chain error (should be unreachable):', chainErr);
       });
       return; // never fall through to the transformers.js pipeline() path
     }
@@ -598,9 +651,9 @@ parentPort.on('message', async (msg: any) => {
       nemotronSegmentTokens.delete(msg.channelId);
       parakeetChannels.delete(msg.channelId);
       parakeetChains.delete(msg.channelId);
-      sherpaChannels.get(msg.channelId)?.dispose();
-      sherpaChannels.delete(msg.channelId);
-      sherpaChains.delete(msg.channelId);
+      segmentChannels.get(msg.channelId)?.dispose();
+      segmentChannels.delete(msg.channelId);
+      segmentChains.delete(msg.channelId);
     }
     return;
   } else if (msg.type === 'setPrompt') {
@@ -643,15 +696,15 @@ parentPort.on('message', async (msg: any) => {
       }
     }
     const sherpaKey = channelId || 'default';
-    const sherpaLangEngine = sherpaChannels.get(sherpaKey)
-      ?? (sherpaChannels.size === 1 ? sherpaChannels.values().next().value : undefined);
-    if (sherpaLangEngine) {
+    const segmentLangEngine = segmentChannels.get(sherpaKey)
+      ?? (segmentChannels.size === 1 ? segmentChannels.values().next().value : undefined);
+    if (segmentLangEngine) {
       // Serialized through the channel's own chain: a language change rebuilds
       // the SenseVoice recognizer, which must never happen mid-transcribe.
-      setSherpaChain(sherpaKey, getSherpaChain(sherpaKey).then(() => {
-        sherpaLangEngine.setLanguage(msg.language ?? 'auto');
+      setSegmentChain(sherpaKey, getSegmentChain(sherpaKey).then(() => {
+        segmentLangEngine.setLanguage(msg.language ?? 'auto');
       }).catch((chainErr) => {
-        console.error('[WhisperWorker] sherpa language chain error (should be unreachable):', chainErr);
+        console.error('[WhisperWorker] segment language chain error (should be unreachable):', chainErr);
       }));
       return;
     }
@@ -747,16 +800,18 @@ parentPort.on('message', async (msg: any) => {
       }));
       return;
     }
-    const sherpaChannelKey = channelId || 'default';
-    const sherpaEngine = sherpaChannels.get(sherpaChannelKey)
-      ?? (sherpaChannels.size === 1 ? sherpaChannels.values().next().value : undefined);
-    if (sherpaEngine) {
-      setSherpaChain(sherpaChannelKey, getSherpaChain(sherpaChannelKey).then(() => {
+    const segmentChannelKey = channelId || 'default';
+    const segmentEngine = segmentChannels.get(segmentChannelKey)
+      ?? (segmentChannels.size === 1 ? segmentChannels.values().next().value : undefined);
+    if (segmentEngine) {
+      setSegmentChain(segmentChannelKey, getSegmentChain(segmentChannelKey).then(async () => {
         try {
           // `nemotronReset` is the protocol's "stateful engine, new utterance"
           // flag (see WorkerTranscribeMessage); an online sherpa engine resets
-          // its stream on it, an offline one ignores it.
-          const res = sherpaEngine.transcribe(msg.audio, { reset: !!msg.nemotronReset });
+          // its stream on it, an offline sherpa/Qwen engine ignores it.
+          // Awaited: Qwen3-ASR's decode is async (transcribe.cpp resolves a
+          // promise per run), sherpa's is synchronous.
+          const res = await segmentEngine.transcribe(msg.audio, { reset: !!msg.nemotronReset });
           parentPort!.postMessage({
             type: msg.streaming ? 'partial' : 'result',
             taskId: msg.taskId,
@@ -772,7 +827,7 @@ parentPort.on('message', async (msg: any) => {
           });
         }
       }).catch((chainErr) => {
-        console.error('[WhisperWorker] sherpa chain error (should be unreachable):', chainErr);
+        console.error('[WhisperWorker] segment chain error (should be unreachable):', chainErr);
       }));
       return;
     }

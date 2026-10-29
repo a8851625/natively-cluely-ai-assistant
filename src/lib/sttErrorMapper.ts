@@ -26,6 +26,7 @@ export type SttErrorCategoryId =
     | 'service_unavailable'
     | 'invalid_config'
     | 'session_conflict'
+    | 'local_model'
     | 'provider_error';
 
 /**
@@ -180,7 +181,27 @@ export function categorizeSttError(rawError: string): SttErrorCategory {
         };
     }
 
-    // 11. Generic provider error
+    // 11. A local model that will not load. LocalWhisperSTT and AppleSpeechSTT
+    // already wrote the sentence the user needs — which cause it was and what
+    // to do about it (loadFailure.ts) — and marked the error fatal. Sending
+    // that through the generic provider bucket replaced it with "an unexpected
+    // issue", which is both untrue and useless: nothing was unexpected, a model
+    // was missing. Keep their words, drop only the technical parenthetical,
+    // which stays in Copy Details via the raw error.
+    if (
+        lower.includes('local model')
+        || lower.includes('local speech model')
+        || lower.includes('downloaded model files are damaged')
+        || lower.includes('sherpa-onnx-node is not available')
+    ) {
+        return {
+            title: 'Local Model Unavailable',
+            body: rawError.replace(/\s*\([\s\S]*$/, '').trim() || rawError,
+            category: 'local_model',
+        };
+    }
+
+    // 12. Generic provider error
     return {
         title: 'STT Provider Error',
         body: 'The transcription service encountered an unexpected issue.',

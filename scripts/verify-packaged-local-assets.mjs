@@ -73,6 +73,14 @@ const REQUIRED_PACKAGE_DIRS = [
   'node_modules/onnxruntime-node',
   // GGUF rerankers and embedders (ggufRerankerWorker, localEmbeddingWorker).
   'node_modules/node-llama-cpp',
+  // The sherpa-onnx local STT runtime (whisperWorker's sherpa engines). The
+  // platform package is unpacked by the **/*.node glob on its own, which is
+  // exactly the trap: sherpa-onnx-node is pure JS with no native file, so it
+  // stays inside app.asar while its .node sibling is unpacked. Node resolution
+  // from the unpacked worker never re-enters app.asar, so the require fails
+  // with "Cannot find module 'sherpa-onnx-node'" and every sherpa model dies
+  // with a terminal local_stt_unavailable.
+  'node_modules/sherpa-onnx-node',
 ];
 
 // Required asarUnpack globs (kept as a single source of truth for the
@@ -113,6 +121,14 @@ const REQUIRED_ASARUNPACK_GLOBS = [
   '**/node_modules/detect-libc/**',
   '**/node_modules/semver/**',
   '**/node_modules/@img/**',
+  // 2026-10-29: the sherpa-onnx local STT runtime. Same failure as sharp above:
+  // the wrapper is pure JS, so only its platform package matched **/*.node and
+  // the wrapper stayed in app.asar — unreachable from the unpacked whisperWorker
+  // (a packaged build transcribed nothing with "Cannot find module
+  // 'sherpa-onnx-node'"). The family glob covers darwin-{arm64,x64},
+  // win-{x64,ia32,arm64} and linux-* in one line.
+  '**/node_modules/sherpa-onnx-node/**',
+  '**/node_modules/sherpa-onnx-*/**',
 ];
 
 // Required built worker scripts (only checked after build:electron has run).

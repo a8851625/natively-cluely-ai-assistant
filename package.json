@@ -185,6 +185,8 @@
       "**/node_modules/onnxruntime-web/**",
       "**/node_modules/node-llama-cpp/**",
       "**/node_modules/@node-llama-cpp/**",
+      "**/node_modules/sherpa-onnx-node/**",
+      "**/node_modules/sherpa-onnx-*/**",
       "**/node_modules/@isaacs/fs-minipass/**",
       "**/node_modules/@kwsites/file-exists/**",
       "**/node_modules/@kwsites/promise-deferred/**",

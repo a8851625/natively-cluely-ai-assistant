@@ -85,9 +85,15 @@ every other local model, so delete/cleanup paths already work.
 
 - `sherpa-onnx-node@2.0.1` is a normal dependency; esbuild treats it as external
   (`scripts/build-electron.js`) like `onnxruntime-node`.
-- `build.asarUnpack` already covers `**/*.node` and `**/*.dylib`, so the addon and
-  its sibling `libsherpa-onnx-*.dylib` / `libonnxruntime.dylib` load from
-  `app.asar.unpacked`.
+- `build.asarUnpack` must list **both** the wrapper and the platform family:
+  `**/node_modules/sherpa-onnx-node/**` and `**/node_modules/sherpa-onnx-*/**`.
+  `**/*.node` / `**/*.dylib` alone is not enough, and getting this wrong is silent:
+  `sherpa-onnx-node` is pure JS with no native file, so it stays inside
+  `app.asar` while only its `.node` sibling gets unpacked. Node resolution from
+  the unpacked `whisperWorker.js` never re-enters `app.asar`, so every sherpa
+  model died in a packaged build with `Cannot find module 'sherpa-onnx-node'` →
+  terminal `local_stt_unavailable` (2026-10-29). `scripts/verify-packaged-local-assets.mjs`
+  now requires both globs so deleting one fails the build.
 - The addon is **N-API**, so no Electron ABI rebuild (`npm run rebuild:native`
   untouched).
 

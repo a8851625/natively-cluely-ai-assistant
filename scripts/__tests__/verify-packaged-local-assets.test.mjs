@@ -289,10 +289,19 @@ test('the gate still runs when the checkout is reached through a link', (t) => {
 test('source mode: this repository still unpacks everything the GGUF path needs', () => {
   // The repo-tree half of the gate, which `npm run app:build` runs before
   // packaging on both operating systems.
-  for (const glob of ['**/ggufRerankerWorker.js', '**/node_modules/node-llama-cpp/**', '**/node_modules/@node-llama-cpp/**']) {
+  for (const glob of [
+    '**/ggufRerankerWorker.js',
+    '**/node_modules/node-llama-cpp/**',
+    '**/node_modules/@node-llama-cpp/**',
+    // sherpa-onnx-node is pure JS beside an unpacked .node sibling; without the
+    // glob Node cannot reach it from app.asar.unpacked and sherpa STT dies.
+    '**/node_modules/sherpa-onnx-node/**',
+    '**/node_modules/sherpa-onnx-*/**',
+  ]) {
     assert.ok(gate.REQUIRED_ASARUNPACK_GLOBS?.includes(glob), `the gate should require the asarUnpack glob ${glob}`);
   }
   assert.ok(gate.REQUIRED_PACKAGE_DIRS.includes('node_modules/node-llama-cpp'));
+  assert.ok(gate.REQUIRED_PACKAGE_DIRS.includes('node_modules/sherpa-onnx-node'));
   const result = spawnSync(process.execPath, [SCRIPT], { encoding: 'utf8' });
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });

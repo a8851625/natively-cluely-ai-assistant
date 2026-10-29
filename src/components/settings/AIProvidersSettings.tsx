@@ -5726,7 +5726,7 @@ export const AIProvidersSettings: React.FC<AIProvidersSettingsProps> = ({
                     <div className="flex gap-3">
                         <AipProviderMark provider="antigravity" name="Google Antigravity" className="mt-0.5" />
                         <div>
-                            <h3 className="text-sm font-bold aip-hero mb-1">Google Antigravity</h3>
+                            <h3 className="text-sm font-bold aip-hero mb-1">{t('Google Antigravity')}</h3>
                             <p className="text-xs aip-muted">{t('Sign in with Google to use your Antigravity models.')}</p>
                         </div>
                     </div>
@@ -5872,7 +5872,7 @@ export const AIProvidersSettings: React.FC<AIProvidersSettingsProps> = ({
                     <div className="flex gap-3 min-w-0">
                         <AipProviderMark provider="codex" name="OpenAI Codex" className="mt-0.5" />
                         <div className="min-w-0">
-                            <h3 className="text-sm font-bold aip-hero mb-1">OpenAI Codex</h3>
+                            <h3 className="text-sm font-bold aip-hero mb-1">{t('OpenAI Codex')}</h3>
                             <p className="text-xs aip-muted">{t('Use your ChatGPT Plus/Pro subscription as an AI provider.')}</p>
                         </div>
                     </div>
@@ -6130,7 +6130,7 @@ export const AIProvidersSettings: React.FC<AIProvidersSettingsProps> = ({
                             <div className="flex items-start gap-2.5 min-w-0">
                                 <AipProviderMark provider="litellm" name="LiteLLM Proxy" className="mt-0.5" />
                                 <div className="min-w-0">
-                                <label className="block text-xs font-bold aip-hero mb-0">LiteLLM Proxy</label>
+                                <label className="block text-xs font-bold aip-hero mb-0">{t('LiteLLM Proxy')}</label>
                                 <p className="text-[10px] aip-muted">
                                     {t('OpenAI-compatible gateway to 100+ providers. Models auto-discovered from the proxy.')}{' '}
                                     <a href="https://docs.litellm.ai/docs/simple_proxy" target="_blank" rel="noreferrer" className="aip-link">{t('Docs')}</a>
@@ -6270,7 +6270,7 @@ export const AIProvidersSettings: React.FC<AIProvidersSettingsProps> = ({
                             <div className="flex items-start gap-2.5 min-w-0">
                                 <AipProviderMark provider="ninerouter" name="9Router" className="mt-0.5" />
                                 <div className="min-w-0">
-                                <label className="block text-xs font-bold aip-hero mb-0">9Router</label>
+                                <label className="block text-xs font-bold aip-hero mb-0">{t('9Router')}</label>
                                 <p className="text-[10px] aip-muted">
                                     {t('Self-hosted proxy that falls back across 40+ providers. Models auto-discovered from your instance.')}{' '}
                                     <a href="https://github.com/decolua/9router" target="_blank" rel="noreferrer" className="aip-link">{t('Docs')}</a>
@@ -6687,7 +6687,7 @@ export const AIProvidersSettings: React.FC<AIProvidersSettingsProps> = ({
                                     ]}
                                 />
                                 <p className="text-[10px] aip-muted mt-1">
-                                    {t('Auto-detect enables vision when your cURL uses')} <code className="aip-code-inline">{"{{IMAGE_BASE64}}"}</code> {t('or an OpenAI-style')} <code className="aip-code-inline">messages</code> {t('body. Choose “Always” only if your endpoint accepts images another way; “Never” keeps this provider out of screenshot analysis.')}
+                                    {t('Auto-detect enables vision when your cURL uses')} <code className="aip-code-inline">{"{{IMAGE_BASE64}}"}</code> {t('or an OpenAI-style')} <code className="aip-code-inline">{t('messages')}</code> {t('body. Choose “Always” only if your endpoint accepts images another way; “Never” keeps this provider out of screenshot analysis.')}
                                 </p>
                             </div>
 
@@ -6721,7 +6721,7 @@ export const AIProvidersSettings: React.FC<AIProvidersSettingsProps> = ({
                                                 <div className="aip-label mb-1.5">{t('Local (Ollama)')}</div>
                                                 <div className="aip-well aip-scroll-x p-2.5 min-w-0">
                                                     <code className="aip-mono whitespace-pre block">
-                                                        curl http://localhost:11434/api/generate -d '{"{"}"model": "llama3", "prompt": "{`{{TEXT}}`}"{"}"}'
+                                                        {t("curl http://localhost:11434/api/generate -d '")}{"{"}"model": "llama3", "prompt": "{`{{TEXT}}`}"{"}"}'
                                                     </code>
                                                 </div>
                                             </div>

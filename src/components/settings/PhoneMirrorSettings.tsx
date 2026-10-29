@@ -1238,7 +1238,7 @@ export const PhoneMirrorSettings: React.FC = () => {
 
           <CompanionRow
             icon={<NativelyGlyph size={20} />}
-            title="Natively Companion"
+            title={t('Natively Companion')}
             badge={extBadge}
             descriptionKey={shownRunning ? 'ext-on' : 'ext-off'}
             description={

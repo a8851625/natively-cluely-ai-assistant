@@ -5,6 +5,7 @@ import { AccordionSection } from '../ui/AccordionSection';
 import { LiquidGlassButton } from '../../ui-components/LiquidGlassButton';
 import { AFFILIATE_PROGRAM_URL, CREATORS_PROGRAM_URL } from '../../lib/partnerLinks';
 import './HowItWorksRefund.css';
+import { useT } from '../../i18n';
 
 // Extracted from NativelyApiSettings so PlansSettings can order this AFTER the
 // app-only-license section. It used to be the last thing inside the API
@@ -360,6 +361,7 @@ const PartPanels: React.FC<{ part: PartId; dir: SwitchDir; content: Record<PartI
 };
 
 export const HowItWorksRefund: React.FC = () => {
+  const t = useT();
   const reduceMotion = useReducedMotion();
   const [{ part, dir }, setView] = useState<{ part: PartId; dir: SwitchDir }>({ part: 'how', dir: 0 });
   const setPart = (next: PartId) => {
@@ -391,7 +393,7 @@ export const HowItWorksRefund: React.FC = () => {
           icon={<CirclePlay size={14} />}
           onClick={() => openExternal(DEMO_URL)}
         >
-          Watch the demo
+          {t('Watch the demo')}
         </LiquidGlassButton>
       </div>
     </>
@@ -413,33 +415,33 @@ export const HowItWorksRefund: React.FC = () => {
     <>
       <IconRow
         icon={<CalendarX size={20} />}
-        title="Cancel or change your plan"
-        description="Do it in the customer portal any time before your renewal date."
+        title={t('Cancel or change your plan')}
+        description={t('Do it in the customer portal any time before your renewal date.')}
         control={(
           // Indigo: .lg-sky, the light Liquid Glass material, fed this
           // section's theme-aware indigo (HowItWorksRefund.css).
           <LiquidGlassButton variant="sky" className="lg-sm" style={INDIGO_BUTTON_STYLE} onClick={() => openExternal(PORTAL_URL)}>
-            Manage
+            {t('Manage')}
           </LiquidGlassButton>
         )}
       />
       <IconRow
         icon={<FileText size={20} />}
-        title="Full refund policy"
-        description="Subscriptions, taxes, fees and your local consumer rights."
+        title={t('Full refund policy')}
+        description={t('Subscriptions, taxes, fees and your local consumer rights.')}
         control={(
           <button type="button" onClick={() => openExternal(POLICY_URL)} className={actionButton}>
-            Open <LearnChevron />
+            {t('Open')} <LearnChevron />
           </button>
         )}
       />
       <IconRow
         icon={<Mail size={20} />}
-        title="Questions or problems?"
+        title={t('Questions or problems?')}
         description={`Email ${CONTACT_EMAIL} rather than disputing a charge.`}
         control={(
           <button type="button" onClick={() => openExternal(`mailto:${CONTACT_EMAIL}`)} className={actionButton}>
-            Email <LearnChevron />
+            {t('Email')} <LearnChevron />
           </button>
         )}
       />
@@ -454,8 +456,7 @@ export const HowItWorksRefund: React.FC = () => {
             <Heart size={20} className="text-[#EE82B0]" fill="currentColor" />
           </div>
           <p className="min-w-0 text-xs text-text-secondary">
-            Natively is built and supported by one person, in their free time. Replies can take a
-            few days, and weekends are offline. Thank you for your patience.
+            {t('Natively is built and supported by one person, in their free time. Replies can take a few days, and weekends are offline. Thank you for your patience.')}
           </p>
         </div>
       </div>
@@ -466,8 +467,8 @@ export const HowItWorksRefund: React.FC = () => {
 
   return (
     <AccordionSection
-      title="How it works & refund policy"
-      description="Setup steps, refund rules and how to cancel."
+      title={t('How it works & refund policy')}
+      description={t('Setup steps, refund rules and how to cancel.')}
       className="natively-key-card bg-bg-item-surface rounded-2xl border-border-subtle !mb-0"
       divider={false}
       hoverFill={false}
@@ -477,7 +478,7 @@ export const HowItWorksRefund: React.FC = () => {
       <div className="-mx-5 -mt-3 -mb-2">
         <div className="px-[17px] pb-2">
           <IndigoSwitch
-            label="How it works and refund policy"
+            label={t('How it works and refund policy')}
             idPrefix="hiw-part"
             items={PARTS}
             value={part}
@@ -503,14 +504,15 @@ export const HowItWorksRefund: React.FC = () => {
  * shows no rate, so neither does this), as on the launcher's program cards.
  */
 export const PartnerPrograms: React.FC = () => {
+  const t = useT();
   const openExternal = (url: string) => {
     (window.electronAPI as any)?.openExternal?.(url);
   };
 
   return (
     <AccordionSection
-      title="Earn with Natively"
-      description="Share Natively and get paid, or get Ultra free."
+      title={t('Earn with Natively')}
+      description={t('Share Natively and get paid, or get Ultra free.')}
       className="natively-key-card bg-bg-item-surface rounded-2xl border-border-subtle !mb-0"
       divider={false}
       hoverFill={false}
@@ -522,21 +524,21 @@ export const PartnerPrograms: React.FC = () => {
       <div className="-mx-5 -mt-5 -mb-4">
         <IconRow
           icon={<HandCoins size={20} />}
-          title="Affiliate program"
-          description="A commission on every sale you refer. Each click counts for 30 days."
+          title={t('Affiliate program')}
+          description={t('A commission on every sale you refer. Each click counts for 30 days.')}
           control={(
             <LiquidGlassButton variant="sky" className="lg-sm" style={INDIGO_BUTTON_STYLE} onClick={() => openExternal(AFFILIATE_PROGRAM_URL)}>
-              Join
+              {t('Join')}
             </LiquidGlassButton>
           )}
         />
         <IconRow
           icon={<Megaphone size={20} />}
-          title="Creator program"
-          description="Post about Natively in your own words. At 5,000 views, a month of Ultra is yours."
+          title={t('Creator program')}
+          description={t('Post about Natively in your own words. At 5,000 views, a month of Ultra is yours.')}
           control={(
             <LiquidGlassButton variant="sky" className="lg-sm" style={INDIGO_BUTTON_STYLE} onClick={() => openExternal(CREATORS_PROGRAM_URL)}>
-              Open
+              {t('Open')}
             </LiquidGlassButton>
           )}
         />

@@ -4,6 +4,7 @@ import { isInternalCaptureDevice } from '../../../electron/audio/audioDeviceSele
 import { isRecognitionLanguageOffered } from '../../../electron/config/languages';
 import { NpPop } from './NpPop';
 import { languageButtonLabel, micButtonLabel, notepadLanguageChoices, type LanguageEntry } from './notepadView';
+import { useT } from '../../i18n';
 
 /**
  * The transcript panel's bottom row (2026-10-20), as Granola's: the mic the
@@ -35,6 +36,7 @@ function writeSaved(id: string): void {
 }
 
 export const TranscriptControls: React.FC = () => {
+    const t = useT();
     const [open, setOpen] = useState<'mic' | 'language' | null>(null);
     const [devices, setDevices] = useState<Array<{ id: string; name: string }>>([]);
     const [saved, setSaved] = useState<string | null>(() => readSaved());
@@ -93,7 +95,7 @@ export const TranscriptControls: React.FC = () => {
                 aria-haspopup="listbox"
                 aria-expanded={open === 'mic'}
                 aria-label={`Microphone: ${micLabel}`}
-                title="Microphone"
+                title={t('Microphone')}
                 onClick={() => setOpen((o) => (o === 'mic' ? null : 'mic'))}
                 className={`${textBtn} min-w-0`}
                 style={ink('--np-ink-secondary')}
@@ -101,7 +103,7 @@ export const TranscriptControls: React.FC = () => {
                 <span className="truncate max-w-[150px]">{micLabel}</span>
                 <ChevronDown className="w-3.5 h-3.5 shrink-0" strokeWidth={2} />
             </button>
-            <button type="button" aria-label="Sound settings" title="Sound settings" onClick={openAudioSettings} className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center transition-colors np-wash" style={ink('--np-ink-secondary')}>
+            <button type="button" aria-label={t('Sound settings')} title={t('Sound settings')} onClick={openAudioSettings} className="w-8 h-8 shrink-0 rounded-full flex items-center justify-center transition-colors np-wash" style={ink('--np-ink-secondary')}>
                 <SlidersVertical className="w-4 h-4" strokeWidth={1.75} />
             </button>
             <button
@@ -109,7 +111,7 @@ export const TranscriptControls: React.FC = () => {
                 aria-haspopup="listbox"
                 aria-expanded={open === 'language'}
                 aria-label={`Transcript language: ${languageButtonLabel(language, languages)}`}
-                title="Transcript language"
+                title={t('Transcript language')}
                 onClick={() => (choices ? setOpen((o) => (o === 'language' ? null : 'language')) : openAudioSettings())}
                 className={`${textBtn} shrink-0`}
                 style={ink('--np-ink-secondary')}
@@ -119,9 +121,9 @@ export const TranscriptControls: React.FC = () => {
                 <ChevronDown className="w-3.5 h-3.5" strokeWidth={2} />
             </button>
 
-                <NpPop open={open === 'mic'} origin="bottom right" role="listbox" aria-label="Microphone" className="absolute right-0 bottom-full mb-2 z-40 w-[260px] max-h-[280px] overflow-y-auto p-1">
+                <NpPop open={open === 'mic'} origin="bottom right" role="listbox" aria-label={t('Microphone')} className="absolute right-0 bottom-full mb-2 z-40 w-[260px] max-h-[280px] overflow-y-auto p-1">
                     {devices.length === 0 ? (
-                        <p className="px-2 py-2 text-[12px]" style={ink('--np-ink-tertiary')}>No microphones found.</p>
+                        <p className="px-2 py-2 text-[12px]" style={ink('--np-ink-tertiary')}>{t('No microphones found.')}</p>
                     ) : devices.map((d) => (
                         <button key={d.id} type="button" role="option" aria-selected={current(d.id)} onClick={() => pickMic(d.id)} className={row} style={ink('--np-ink')}>
                             <span className="flex-1 min-w-0 truncate">{d.name}</span>
@@ -129,7 +131,7 @@ export const TranscriptControls: React.FC = () => {
                         </button>
                     ))}
                 </NpPop>
-                <NpPop open={open === 'language' && !!choices} origin="bottom right" role="listbox" aria-label="Transcript language" className="absolute right-0 bottom-full mb-2 z-40 w-[240px] max-h-[320px] overflow-y-auto p-1">
+                <NpPop open={open === 'language' && !!choices} origin="bottom right" role="listbox" aria-label={t('Transcript language')} className="absolute right-0 bottom-full mb-2 z-40 w-[240px] max-h-[320px] overflow-y-auto p-1">
                     {(choices ?? []).map((c) => (
                         <button key={c.key} type="button" role="option" aria-selected={c.key === language} onClick={() => pickLanguage(c.key)} className={row} style={ink('--np-ink')}>
                             <span className="flex-1 min-w-0 truncate">{c.label}</span>

@@ -229,7 +229,7 @@ export const WebhooksPanel: React.FC<{ kind: 'webhook' | 'zapier'; endpoints: We
                 </DetailSection>
             )}
             {!zapier && (
-                <DetailSection title="What is sent" subtitle={t('A JSON body like this, signed with your secret.')}>
+                <DetailSection title={t('What is sent')} subtitle={t('A JSON body like this, signed with your secret.')}>
                     <pre className="overflow-x-auto px-4 py-3.5 font-mono text-[11.5px] leading-relaxed text-text-primary">{`{
   "type": "note.generated",
   "timestamp": "2026-10-17T15:02:11Z",

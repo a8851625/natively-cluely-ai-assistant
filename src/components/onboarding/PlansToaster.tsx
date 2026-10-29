@@ -24,6 +24,7 @@ import { Check } from 'lucide-react';
 import { useResolvedTheme } from '../../hooks/useResolvedTheme';
 import { GenieModal } from '../ui/GenieModal';
 import { PLANS } from '../settings/NativelyApiSettings';
+import { useT } from '../../i18n';
 
 const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, sans-serif';
 
@@ -125,6 +126,7 @@ interface Props {
 }
 
 export const PlansToaster: React.FC<Props> = ({ isOpen, onDismiss }) => {
+  const t = useT();
   const [opening, setOpening] = useState<Plan['id'] | null>(null);
   const [checkoutFailed, setCheckoutFailed] = useState(false);
   const [hovered, setHovered] = useState<Plan['id'] | null>(null);
@@ -220,20 +222,20 @@ export const PlansToaster: React.FC<Props> = ({ isOpen, onDismiss }) => {
         style={{ position: 'relative', padding: '34px 32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}
       >
         <motion.div variants={item} style={{ fontSize: '12px', fontWeight: 500, letterSpacing: '-0.005em', color: T.quiet }}>
-          Natively Plans
+          {t('Natively Plans')}
         </motion.div>
 
         <motion.h2 variants={item} id="plans-toast-title" style={{
           margin: '8px 0 6px', fontSize: '32px', fontWeight: 300,
           letterSpacing: '-0.03em', lineHeight: 1.1, color: T.strong,
         }}>
-          Pick how much Natively you need
+          {t('Pick how much Natively you need')}
         </motion.h2>
 
         <motion.p variants={item} id="plans-toast-desc" style={{
           margin: '0 0 24px', fontSize: '13px', lineHeight: 1.5, letterSpacing: '-0.008em', color: T.body,
         }}>
-          Every plan covers AI answers, transcription and web search on one key.
+          {t('Every plan covers AI answers, transcription and web search on one key.')}
         </motion.p>
 
         <motion.div variants={item} style={{ width: '100%', display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '12px' }}>
@@ -255,7 +257,7 @@ export const PlansToaster: React.FC<Props> = ({ isOpen, onDismiss }) => {
                         fontSize: '10px', fontWeight: 600, padding: '2px 8px', borderRadius: '999px',
                         background: T.pill.bg, color: T.pill.ink,
                       }}>
-                        Recommended
+                        {t('Recommended')}
                       </span>
                     )}
                   </span>
@@ -309,7 +311,7 @@ export const PlansToaster: React.FC<Props> = ({ isOpen, onDismiss }) => {
 
         {checkoutFailed && (
           <p role="alert" style={{ margin: '14px 0 0', fontSize: '12px', color: T.error }}>
-            Couldn't open checkout. Try again, or use Settings › Plans & Billing.
+            {t("Couldn't open checkout. Try again, or use Settings › Plans & Billing.")}
           </p>
         )}
 
@@ -329,7 +331,7 @@ export const PlansToaster: React.FC<Props> = ({ isOpen, onDismiss }) => {
           onFocus={e => (e.currentTarget.style.color = T.strong)}
           onBlur={e => (e.currentTarget.style.color = T.quiet)}
         >
-          Continue for free
+          {t('Continue for free')}
         </motion.button>
       </motion.div>
     </GenieModal>

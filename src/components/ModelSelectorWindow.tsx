@@ -12,6 +12,7 @@ import {
     getOverlayAppearance,
     OVERLAY_OPACITY_DEFAULT,
 } from '../lib/overlayAppearance';
+import { useT } from '../i18n';
 
 type ModelOption = ModelSelectorOption;
 
@@ -21,6 +22,7 @@ const LIST_MAX_HEIGHT = 340;
 const PANEL_CHROME = 10;
 
 const ModelSelectorWindow = () => {
+    const t = useT();
     const isLight = useResolvedTheme() === 'light';
     const [currentModel, setCurrentModel] = useState<string>(() => localStorage.getItem('cached-current-model') || '');
     // Meeting-interface theme (default/liquid-glass/modern) + live overlay
@@ -486,7 +488,7 @@ const ModelSelectorWindow = () => {
                     {isLoading ? (
                         <div className="flex items-center gap-2 px-2 h-[30px] overlay-text-muted">
                             <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                            <span className="text-[12px]">Loading models…</span>
+                            <span className="text-[12px]">{t('Loading models…')}</span>
                         </div>
                     ) : availableModels.length === 0 ? (
                         // An empty state, not a list: one quiet line that says
@@ -501,7 +503,7 @@ const ModelSelectorWindow = () => {
                         // Settings." each wrapped.
                         <div className="flex flex-col gap-1.5 pt-1.5">
                             <div className="text-center text-[11px] leading-4 select-none whitespace-nowrap" style={{ color: headerColor }}>
-                                No models yet
+                                {t('No models yet')}
                             </div>
                             <button
                                 type="button"
@@ -510,14 +512,14 @@ const ModelSelectorWindow = () => {
                                 // and the 3% squeeze start at pointer-down.
                                 className="w-full h-[28px] rounded-[10px] text-[12px] font-medium whitespace-nowrap overlay-text-primary bg-[var(--overlay-control-bg)] hover:bg-[var(--overlay-control-hover-bg)] transition-[background-color,transform] duration-100 ease-out active:scale-[0.97] motion-reduce:transform-none"
                             >
-                                Add a model
+                                {t('Add a model')}
                             </button>
                         </div>
                     ) : (
                         <div
                             ref={listRef}
                             role="listbox"
-                            aria-label="Model"
+                            aria-label={t('Model')}
                             onScroll={updateFade}
                             className="relative overflow-y-auto overscroll-contain scrollbar-hide flex flex-col"
                             style={{ maxHeight: listMaxHeight, maskImage: fadeMask, WebkitMaskImage: fadeMask }}
@@ -550,7 +552,7 @@ const ModelSelectorWindow = () => {
                                                     {/* No `title`: an overlay tooltip is a separate window
                                                         that screen capture can see. */}
                                                     {textOnlyIds.has(model.id) && (
-                                                        <ImageOff className="w-3 h-3 shrink-0 opacity-50" strokeWidth={1.75} role="img" aria-label="Can't read screenshots" />
+                                                        <ImageOff className="w-3 h-3 shrink-0 opacity-50" strokeWidth={1.75} role="img" aria-label={t("Can't read screenshots")} />
                                                     )}
                                                     {/* Only the checked row gives up room for the check:
                                                         reserving it on every row left a visible gap beside

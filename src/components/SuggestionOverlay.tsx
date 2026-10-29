@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useT } from '../i18n';
 
 interface SuggestionOverlayProps {
     className?: string;
@@ -31,6 +32,7 @@ interface GeneratedSuggestion {
  * Displays real-time transcripts and AI-generated suggestions
  */
 export const SuggestionOverlay: React.FC<SuggestionOverlayProps> = ({ className }) => {
+    const t = useT();
     const [isConnected, setIsConnected] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [currentTranscript, setCurrentTranscript] = useState<Transcript | null>(null);
@@ -119,7 +121,7 @@ export const SuggestionOverlay: React.FC<SuggestionOverlayProps> = ({ className 
                             {currentTranscript.speaker === 'interviewer' ? '🎤 Interviewer' : '👤 You'}
                         </span>
                         {!currentTranscript.final && (
-                            <span className="text-xs text-gray-500 animate-pulse">listening...</span>
+                            <span className="text-xs text-gray-500 animate-pulse">{t('listening...')}</span>
                         )}
                     </div>
                     <p className="text-sm text-gray-200">{currentTranscript.text}</p>
@@ -130,7 +132,7 @@ export const SuggestionOverlay: React.FC<SuggestionOverlayProps> = ({ className 
             {isProcessing && (
                 <div className="processing-indicator flex items-center gap-2 p-3 rounded-lg bg-purple-900/30 border border-purple-700">
                     <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-sm text-purple-300">Generating suggestion...</span>
+                    <span className="text-sm text-purple-300">{t('Generating suggestion...')}</span>
                 </div>
             )}
 
@@ -138,9 +140,9 @@ export const SuggestionOverlay: React.FC<SuggestionOverlayProps> = ({ className 
             {suggestion && !isProcessing && (
                 <div className="suggestion-card p-4 rounded-lg bg-gradient-to-br from-indigo-900/80 to-purple-900/80 backdrop-blur-sm border border-indigo-500/50 shadow-lg shadow-indigo-500/20">
                     <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-medium text-indigo-300">💡 Suggested Response</span>
+                        <span className="text-xs font-medium text-indigo-300">{t('💡 Suggested Response')}</span>
                         <span className="text-xs text-gray-400">
-                            {Math.round(suggestion.confidence * 100)}% confidence
+                            {Math.round(suggestion.confidence * 100)}{t('% confidence')}
                         </span>
                     </div>
                     <p className="text-sm text-gray-100 leading-relaxed">{suggestion.suggestion}</p>

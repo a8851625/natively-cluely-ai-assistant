@@ -19,6 +19,7 @@ import { X, ArrowRight } from 'lucide-react';
 import { GenieModal } from './ui/GenieModal';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
 import supportArt from '../assets/cards/support.jpg';
+import { useT } from '../i18n';
 
 const SUPPORT_URL = 'https://buymeacoffee.com/evinjohnn';
 
@@ -86,6 +87,7 @@ interface SupportToasterProps {
 }
 
 export const SupportToaster: React.FC<SupportToasterProps> = ({ isOpen, onDismiss, className }) => {
+  const t = useT();
   const [plateHover, setPlateHover] = useState(false);
   const [ctaActive, setCtaActive]   = useState(false);
   const [ctaPressed, setCtaPressed] = useState(false);
@@ -180,7 +182,7 @@ export const SupportToaster: React.FC<SupportToasterProps> = ({ isOpen, onDismis
             fontSize: '12px', fontWeight: 500, letterSpacing: '-0.005em',
             color: INK.quiet, margin: '0 0 22px',
           }}>
-            Support Natively
+            {t('Support Natively')}
           </motion.div>
 
           {/*
@@ -193,9 +195,9 @@ export const SupportToaster: React.FC<SupportToasterProps> = ({ isOpen, onDismis
             letterSpacing: '-0.032em', lineHeight: 1.08,
             margin: '0 0 20px', color: INK.strong,
           }}>
-            Built by one.
+            {t('Built by one.')}
             <br />
-            Used by thousands.
+            {t('Used by thousands.')}
           </motion.h2>
 
           <motion.p variants={ITEM} id="support-toast-desc" style={{
@@ -203,8 +205,7 @@ export const SupportToaster: React.FC<SupportToasterProps> = ({ isOpen, onDismis
             color: INK.body, margin: 0, maxWidth: '300px',
             textWrap: 'pretty',
           } as React.CSSProperties}>
-            Natively is built and maintained by one developer. If it's part
-            of your daily workflow, your support keeps it moving forward.
+            {t("Natively is built and maintained by one developer. If it's part of your daily workflow, your support keeps it moving forward.")}
           </motion.p>
 
           {/* marginTop: auto pins the action row to the bottom of the
@@ -248,7 +249,7 @@ export const SupportToaster: React.FC<SupportToasterProps> = ({ isOpen, onDismis
                   + ` color ${ctaDur}ms ${EASE_CSS}, transform 120ms ${EASE_CSS}`,
               }}
             >
-              <span>Support the Builder</span>
+              <span>{t('Support the Builder')}</span>
               <ArrowRight
                 size={14} strokeWidth={1.9} aria-hidden
                 style={{
@@ -274,7 +275,7 @@ export const SupportToaster: React.FC<SupportToasterProps> = ({ isOpen, onDismis
               onFocus={e => (e.currentTarget.style.color = INK.body)}
               onBlur={e => (e.currentTarget.style.color = INK.faint)}
             >
-              Maybe later
+              {t('Maybe later')}
             </button>
           </motion.div>
         </motion.div>
@@ -305,7 +306,7 @@ export const SupportToaster: React.FC<SupportToasterProps> = ({ isOpen, onDismis
             <button
               type="button"
               onClick={() => dismiss()}
-              aria-label="Close"
+              aria-label={t('Close')}
               style={{
                 position: 'absolute', top: '8px', right: '8px', zIndex: 2,
                 width: '30px', height: '30px',

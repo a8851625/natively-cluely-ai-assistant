@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import type { DynamicActionPayload } from '@/types/electron'
 import './dynamicActionCard.css'
+import { useT } from '../../i18n';
 
 /** Why a card left, so its exit can say so. */
 export type CardExitReason = 'accept' | 'dismiss' | 'expire'
@@ -160,6 +161,7 @@ export const DynamicActionCard = forwardRef<HTMLDivElement, Props>(function Dyna
   { action, waiting = 0, shortcutKeys = [], pressing = false, onAccept, onDismiss, surfaceStyle },
   ref,
 ) {
+  const t = useT();
   const [busy, setBusy] = useState(false)
   const reduce = useReducedMotion() ?? false
   const Icon = glyphFor(action.type)
@@ -255,7 +257,7 @@ export const DynamicActionCard = forwardRef<HTMLDivElement, Props>(function Dyna
               type="button"
               onClick={() => onDismiss(action.id)}
               className="action-cue-dismiss absolute inset-0 grid place-items-center rounded-[6px] text-[var(--overlay-text-muted)] hover:text-[var(--overlay-text-primary)] hover:bg-[var(--overlay-icon-hover-bg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--overlay-border)]"
-              title="Dismiss"
+              title={t('Dismiss')}
               aria-label={`Dismiss ${action.label}`}
             >
               <X className="w-3 h-3" strokeWidth={2} />

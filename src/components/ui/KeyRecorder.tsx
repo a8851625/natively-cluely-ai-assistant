@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Check } from 'lucide-react';
 import { isRepresentableKey } from '../../utils/keyboardUtils';
+import { useT } from '../../i18n';
 
 interface KeyRecorderProps {
     currentKeys: string[];
@@ -9,6 +10,7 @@ interface KeyRecorderProps {
 }
 
 export const KeyRecorder: React.FC<KeyRecorderProps> = ({ currentKeys, onSave, className }) => {
+    const t = useT();
     const [isRecording, setIsRecording] = useState(false);
     const [recordedKeys, setRecordedKeys] = useState<string[]>([]);
     const inputRef = useRef<HTMLDivElement>(null);
@@ -85,7 +87,7 @@ export const KeyRecorder: React.FC<KeyRecorderProps> = ({ currentKeys, onSave, c
                     {/* Grows out of the keycaps (settings-control-in) and, until a
                         key lands, sweeps like the overlay's Thinking label so an
                         armed recorder reads as listening (src/index.css). */}
-                    {recordedKeys.length > 0 ? recordedKeys.join(' + ') : <span className="settings-listening">Press keys...</span>}
+                    {recordedKeys.length > 0 ? recordedKeys.join(' + ') : <span className="settings-listening">{t('Press keys...')}</span>}
                 </div>
             ) : (
                 <div className="flex items-center gap-1 settings-control-in">

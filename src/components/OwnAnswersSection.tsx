@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { AlertCircle, Check, RefreshCw } from 'lucide-react';
+import { useT } from '../i18n';
 
 // "Cue Cards" in Profile Intelligence: the questions only the user can
 // answer (biggest weakness, why they left, a salary range). Natively drafts the
@@ -35,6 +36,7 @@ function AnswerBox({ minRows, ...props }: React.TextareaHTMLAttributes<HTMLTextA
 }
 
 export function OwnAnswersSection({ hasResume, hasAccess }: { hasResume: boolean; hasAccess: boolean }) {
+    const t = useT();
     const [questions, setQuestions] = useState<Question[]>([]);
     const [stored, setStored] = useState<Record<string, Answer>>({});
     const [text, setText] = useState<Record<string, string>>({});
@@ -124,15 +126,15 @@ export function OwnAnswersSection({ hasResume, hasAccess }: { hasResume: boolean
         <>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 20 }}>
                 <div>
-                    <h3 className="pi-section-label" style={{ margin: 0 }}>Cue Cards</h3>
+                    <h3 className="pi-section-label" style={{ margin: 0 }}>{t('Cue Cards')}</h3>
                     <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: '4px 0 0', lineHeight: 1.5, maxWidth: 420 }}>
-                        Questions only you can answer. When one comes up in a meeting, Natively answers with what you saved here.
+                        {t('Questions only you can answer. When one comes up in a meeting, Natively answers with what you saved here.')}
                     </p>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
                     {draftKeys.length > 1 && (
                         <button className="pi-pill-btn pi-pill-btn--primary pi-press" disabled={!hasAccess} onClick={() => void useDrafts()}>
-                            <Check size={12} /> Use all drafts
+                            <Check size={12} /> {t('Use all drafts')}
                         </button>
                     )}
                     {hasResume && (
@@ -152,7 +154,7 @@ export function OwnAnswersSection({ hasResume, hasAccess }: { hasResume: boolean
 
             {loaded && draftKeys.length > 0 && (
                 <p style={{ fontSize: 11, color: 'var(--pi-secondary)', margin: '0 0 14px', lineHeight: 1.5 }}>
-                    Natively drafted {draftKeys.length === 1 ? 'one answer' : `${draftKeys.length} answers`} from your résumé. A draft is not used in a meeting until you press Use or edit it.
+                    {t('Natively drafted')} {draftKeys.length === 1 ? 'one answer' : `${draftKeys.length} answers`} {t('from your résumé. A draft is not used in a meeting until you press Use or edit it.')}
                 </p>
             )}
 
@@ -168,16 +170,16 @@ export function OwnAnswersSection({ hasResume, hasAccess }: { hasResume: boolean
                     <div key={q.key} className="pi-section-card" data-own-answer={q.key} data-status={dirty ? 'edited' : (was?.status ?? 'empty')}>
                         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
                             <label htmlFor={`own-answer-${q.key}`} className="pi-section-header-label">{q.label}</label>
-                            {isDraft && <span style={{ fontSize: 11, color: 'var(--pi-badge-text)', flexShrink: 0 }}>Draft, not used yet</span>}
+                            {isDraft && <span style={{ fontSize: 11, color: 'var(--pi-badge-text)', flexShrink: 0 }}>{t('Draft, not used yet')}</span>}
                             {isSaved && (
                                 <span className={justSaved === q.key ? 'pi-save-pulse' : undefined} style={{ fontSize: 11, color: 'var(--pi-tertiary)', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
-                                    <Check size={11} /> Saved
+                                    <Check size={11} /> {t('Saved')}
                                 </span>
                             )}
                         </div>
                         <div className="pi-content-box">
                             {pending ? (
-                                <div style={{ padding: '12px 14px' }} aria-label="Writing a draft">
+                                <div style={{ padding: '12px 14px' }} aria-label={t('Writing a draft')}>
                                     <div className="pi-skeleton" style={{ height: 11, width: '92%', borderRadius: 3, marginBottom: 7 }} />
                                     <div className="pi-skeleton" style={{ height: 11, width: '78%', borderRadius: 3 }} />
                                 </div>
@@ -202,12 +204,12 @@ export function OwnAnswersSection({ hasResume, hasAccess }: { hasResume: boolean
                                 {/* onMouseDown keeps the box focused, so the blur save and this click do not both fire. */}
                                 {dirty && (
                                     <button className="pi-pill-btn pi-pill-btn--primary pi-press" disabled={!hasAccess} onMouseDown={(e) => e.preventDefault()} onClick={() => void save(q.key, value)}>
-                                        Save
+                                        {t('Save')}
                                     </button>
                                 )}
                                 {isDraft && (
                                     <button className="pi-pill-btn pi-press" disabled={!hasAccess} onClick={() => void useDrafts([q.key])}>
-                                        <Check size={12} /> Use this
+                                        <Check size={12} /> {t('Use this')}
                                     </button>
                                 )}
                             </div>

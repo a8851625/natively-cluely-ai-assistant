@@ -12,6 +12,7 @@ import {
     OVERLAY_OPACITY_DEFAULT,
 } from '../lib/overlayAppearance';
 import { useToggleInit } from './settings/useToggleInit';
+import { useT } from '../i18n';
 
 /**
  * The quick-settings popup's switch (`sm` variant: a 30x13.64 track — the
@@ -70,6 +71,7 @@ const PopupToggle: React.FC<{
 };
 
 const SettingsPopup = () => {
+    const t = useT();
     const { shortcuts } = useShortcuts();
     const isLightTheme = useResolvedTheme() === 'light';
     const [isUndetectable, setIsUndetectable] = useState(false);
@@ -463,7 +465,7 @@ const SettingsPopup = () => {
                         it was dropped from this popup by owner request. */}
 
                     <div className="px-2 pt-2 pb-0.5 text-[11px] leading-4 font-semibold select-none" style={{ color: headerColor }}>
-                        Shortcuts
+                        {t('Shortcuts')}
                     </div>
                     {renderShortcutRow({
                         key: 'show-hide',

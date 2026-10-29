@@ -5,6 +5,7 @@ import { prepareSplash, renderSplash, type SplashScene } from './startup/splashR
 import {
     LIFT, LOGO_OUT, SPLASH_DISMISS_MS, SPLASH_HARD_CAP_MS, SPLASH_SETTLE_MS,
 } from './startup/splashTimeline';
+import { useT } from '../i18n';
 
 interface StartupSequenceProps {
     onComplete: () => void;
@@ -18,6 +19,7 @@ const prefersReducedMotion = () => window.matchMedia?.('(prefers-reduced-motion:
 const MAX_CANVAS_PIXELS = 8_000_000;
 
 const StartupSequence: React.FC<StartupSequenceProps> = ({ onComplete }) => {
+    const t = useT();
     // Keep the latest onComplete in a ref so the timer effect can depend on []
     // and arm EXACTLY ONCE for the splash's lifetime. If the effect depended on
     // `onComplete` directly, an un-memoized caller (a new closure per parent
@@ -144,9 +146,9 @@ const StartupSequence: React.FC<StartupSequenceProps> = ({ onComplete }) => {
     return (
         <div ref={boxRef} className="fixed inset-0 z-[100] bg-[#000000] flex items-center justify-center overflow-hidden">
             {plain ? (
-                <img src={appIcon} alt="Natively" className="w-24 h-24 object-contain" />
+                <img src={appIcon} alt={t('Natively')} className="w-24 h-24 object-contain" />
             ) : (
-                <canvas ref={canvasRef} role="img" aria-label="Natively" className="absolute inset-0 w-full h-full block" />
+                <canvas ref={canvasRef} role="img" aria-label={t('Natively')} className="absolute inset-0 w-full h-full block" />
             )}
         </div>
     );

@@ -24,6 +24,7 @@ import {
   type NativelyPlanLimits, type TrialUsage,
 } from '../../types/nativelyUsage';
 import timerArt from '../../assets/cards/timer.jpg';
+import { useT } from '../../i18n';
 
 const PLAN_STANDARD_URL = 'https://checkout.dodopayments.com/buy/pdt_0NbFixGmD8CSeawb5qvVl';
 const PLAN_PRO_URL      = 'https://checkout.dodopayments.com/buy/pdt_0NcM6Aw0IWdspbsgUeCLA';
@@ -137,6 +138,7 @@ type Step = 'choose' | 'wiping' | 'done';
 const WIPE_FAILED_COPY = "Couldn't finish clearing your trial data. Try again.";
 
 export const FreeTrialModal: React.FC<TrialModalProps> = ({ usage, onByok, onStandard, onDone, activeTrialExpiresAt }) => {
+  const t = useT();
   const [step,       setStep]       = useState<Step>('choose');
   const [error,      setError]      = useState<string | null>(null);
   const [plateHover, setPlateHover] = useState(false);
@@ -284,7 +286,7 @@ export const FreeTrialModal: React.FC<TrialModalProps> = ({ usage, onByok, onSta
           <button
             type="button"
             onClick={dismiss}
-            aria-label="Close"
+            aria-label={t('Close')}
             style={{
               position: 'absolute', top: '14px', right: '10px',
               display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
@@ -338,8 +340,7 @@ export const FreeTrialModal: React.FC<TrialModalProps> = ({ usage, onByok, onSta
                     {' still left. '}
                   </>
                 )}
-                You{isActiveTrial ? '’ve used' : ' used'} {formatCompact(usage.ai_tokens ?? 0)} AI tokens, {sttMin} min
-                of voice and {researchRunsUsed} research {researchRunsUsed === 1 ? 'run' : 'runs'}.
+                {t('You')}{isActiveTrial ? '’ve used' : ' used'} {formatCompact(usage.ai_tokens ?? 0)} {t('AI tokens,')} {sttMin} {t('min of voice and')} {researchRunsUsed} {t('research')} {researchRunsUsed === 1 ? 'run' : 'runs'}.
                 {isActiveTrial
                   ? ' Nothing here ends your trial. Pick a plan when you are ready, or close this and carry on.'
                   : ' Pick a plan to carry on, or bring your own keys.'}
@@ -438,7 +439,7 @@ export const FreeTrialModal: React.FC<TrialModalProps> = ({ usage, onByok, onSta
                         + ` color ${ctaDur}ms ${EASE_CSS}, transform 120ms ${EASE_CSS}`,
                     }}
                   >
-                    <span>Continue with Pro</span>
+                    <span>{t('Continue with Pro')}</span>
                     <ArrowRight
                       size={14} strokeWidth={1.9} aria-hidden
                       style={{
@@ -484,12 +485,12 @@ export const FreeTrialModal: React.FC<TrialModalProps> = ({ usage, onByok, onSta
                       onFocus={e => (e.currentTarget.style.color = INK.body)}
                       onBlur={e => (e.currentTarget.style.color = INK.faint)}
                     >
-                      End trial anyway
+                      {t('End trial anyway')}
                     </button>
                   )}
                 </div>
                 <div style={{ marginTop: '14px', fontSize: '11.5px', fontWeight: 500, color: INK.faint }}>
-                  Cancel anytime. Secure checkout by Dodo Payments.
+                  {t('Cancel anytime. Secure checkout by Dodo Payments.')}
                 </div>
               </motion.div>
             </motion.div>
@@ -510,10 +511,10 @@ export const FreeTrialModal: React.FC<TrialModalProps> = ({ usage, onByok, onSta
                 <Loader2 size={20} strokeWidth={1.75} color={INK.quiet} />
               </motion.div>
               <h2 id="trial-end-title" style={{ fontSize: '28px', fontWeight: 300, letterSpacing: '-0.03em', lineHeight: 1.1, margin: '0 0 12px', color: INK.strong }}>
-                Cleaning up.
+                {t('Cleaning up.')}
               </h2>
               <p id="trial-end-desc" style={{ fontSize: '13px', lineHeight: 1.55, color: INK.body, margin: 0, maxWidth: '300px' }}>
-                Removing the trial's cached company research and Pro data from this device.
+                {t("Removing the trial's cached company research and Pro data from this device.")}
               </p>
             </motion.div>
           )}
@@ -525,11 +526,11 @@ export const FreeTrialModal: React.FC<TrialModalProps> = ({ usage, onByok, onSta
               style={{ flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}
             >
               <h2 id="trial-end-title" style={{ fontSize: '32px', fontWeight: 300, letterSpacing: '-0.032em', lineHeight: 1.08, margin: '0 0 14px', color: INK.strong }}>
-                All set.
+                {t('All set.')}
               </h2>
               <p id="trial-end-desc" style={{ fontSize: '13px', lineHeight: 1.55, color: INK.body, margin: 0, maxWidth: '300px' }}>
                 {wipeIncomplete ? "Trial ended. Some trial data couldn't be cleared." : 'Trial data is gone.'}{' '}
-                Add your keys in Settings, AI Providers, to get started.
+                {t('Add your keys in Settings, AI Providers, to get started.')}
               </p>
               {onDone && (
                 <button
@@ -547,7 +548,7 @@ export const FreeTrialModal: React.FC<TrialModalProps> = ({ usage, onByok, onSta
                     transition: `border-color ${ctaDur}ms ${EASE_CSS}, background-color ${ctaDur}ms ${EASE_CSS}, color ${ctaDur}ms ${EASE_CSS}`,
                   }}
                 >
-                  <span>Add my keys</span>
+                  <span>{t('Add my keys')}</span>
                   <ArrowRight size={14} strokeWidth={1.9} aria-hidden />
                 </button>
               )}

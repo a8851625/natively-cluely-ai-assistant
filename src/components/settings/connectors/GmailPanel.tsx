@@ -80,14 +80,14 @@ export const GmailPanel: React.FC<{ status: GmailStatus | null; onStatus: (s: Gm
                 )}
             </ActionArea>
 
-            <PlainSection title="Includes">
+            <PlainSection title={t('Includes')}>
                 <FeatureCard
-                    title="Follow-up emails"
-                    description="Send a meeting's follow-up email from your own Gmail, once you have read it over."
+                    title={t('Follow-up emails')}
+                    description={t("Send a meeting's follow-up email from your own Gmail, once you have read it over.")}
                 />
                 <FeatureCard
-                    title="Meeting briefs"
-                    description="Before a meeting, its brief can mention your recent threads with the people you are meeting."
+                    title={t('Meeting briefs')}
+                    description={t('Before a meeting, its brief can mention your recent threads with the people you are meeting.')}
                     control={status.connected ? (
                         <SettingsSwitch
                             checked={status.briefsEnabled}
@@ -98,7 +98,7 @@ export const GmailPanel: React.FC<{ status: GmailStatus | null; onStatus: (s: Gm
                 />
             </PlainSection>
 
-            <UsageList title="How Gmail is used" rows={USAGE} />
+            <UsageList title={t('How Gmail is used')} rows={USAGE} />
         </>
     );
 };

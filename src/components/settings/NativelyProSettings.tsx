@@ -867,7 +867,7 @@ export const NativelyProSettings: React.FC<NativelyProSettingsProps> = ({
                         {/* min-w-0 so the label truncates instead of shoving the
                             button off the row at narrow modal widths. */}
                         <div className="min-w-0 flex-1">
-                            <h2 className="pro-active-ink text-[13.5px] font-semibold tracking-[-0.01em]">Pro License Active</h2>
+                            <h2 className="pro-active-ink text-[13.5px] font-semibold tracking-[-0.01em]">{t('Pro License Active')}</h2>
                             {/* Only the standalone, device-bound licence reaches this
                                 card now (the API-bundled case returns null above), so
                                 this no longer branches on provider. The consequence of
@@ -876,7 +876,7 @@ export const NativelyProSettings: React.FC<NativelyProSettingsProps> = ({
                                 user actually needs to know before pressing it, and it
                                 reads better as context than as fine print. */}
                             <p className="pro-active-sub text-[11.5px] leading-snug mt-0.5">
-                                Unlocked on this device. Deactivate to free it for another computer.
+                                {t('Unlocked on this device. Deactivate to free it for another computer.')}
                             </p>
                         </div>
                         {/* Jelly clay, the same construction as the Activate CTA on
@@ -900,9 +900,9 @@ export const NativelyProSettings: React.FC<NativelyProSettingsProps> = ({
                                 inside a pill reads as a flicker rather than as
                                 a transition. */}
                             {deactivatePhase === 'idle' ? (
-                                <><X size={13} /> Deactivate</>
+                                <><X size={13} /> {t('Deactivate')}</>
                             ) : (
-                                <><span className="pro-deactivate-spinner" aria-hidden /> Deactivating…</>
+                                <><span className="pro-deactivate-spinner" aria-hidden /> {t('Deactivating…')}</>
                             )}
                         </button>
                     </div>
@@ -976,12 +976,12 @@ export const NativelyProSettings: React.FC<NativelyProSettingsProps> = ({
                                     NATIVELY PRO
                                 </span>
                                 <span className="pro-teaser-title block mt-2 text-[14.5px] font-semibold tracking-[-0.012em]">
-                                    Own the app. Use your own AI keys.
+                                    {t('Own the app. Use your own AI keys.')}
                                 </span>
                                 {/* The live prices are the hook. This is the number
                                     the old collapsed header never showed. */}
                                 <span className="pro-teaser-sub block mt-1 text-[11.5px] leading-snug">
-                                    {yearlyPriceText} per year, or {lifetimePriceText} once. No monthly API plan, no usage quota.
+                                    {yearlyPriceText} {t('per year, or')} {lifetimePriceText} {t('once. No monthly API plan, no usage quota.')}
                                 </span>
                             </span>
                             <span className="pro-teaser-cta relative z-[3] shrink-0 inline-flex items-center gap-1.5 h-9 px-4 rounded-full text-[12.5px] font-semibold" style={{ letterSpacing: '-0.005em' }}>
@@ -1031,7 +1031,7 @@ export const NativelyProSettings: React.FC<NativelyProSettingsProps> = ({
                             >
                                 <div className="relative flex items-center justify-between" style={{ transformStyle: 'preserve-3d', transform: 'translateZ(12px)' }}>
                                     <span className="badge-tier-label inline-flex items-center px-2 py-0.5 rounded-full text-text-primary text-[10px] font-semibold" style={{ letterSpacing: '0.02em' }}>
-                                        Pro · Yearly
+                                        {t('Pro · Yearly')}
                                     </span>
                                 </div>
 
@@ -1063,7 +1063,7 @@ export const NativelyProSettings: React.FC<NativelyProSettingsProps> = ({
                                     </span>
                                 </div>
                                 <p className="relative mt-1 text-[11px] font-medium text-text-secondary" style={{ transform: 'translateZ(10px)' }}>
-                                    per year · billed annually
+                                    {t('per year · billed annually')}
                                 </p>
 
                                 {/* Crisp gradient hairline divider */}
@@ -1089,10 +1089,10 @@ export const NativelyProSettings: React.FC<NativelyProSettingsProps> = ({
                                     className="pricing-cta-yearly relative mt-4 h-11 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none"
                                     style={{ letterSpacing: '-0.005em', transform: 'translateZ(28px)' }}
                                 >
-                                    Get Pro
+                                    {t('Get Pro')}
                                 </button>
                                 <p className="relative mt-2 text-center text-[10px] leading-snug text-text-secondary" style={{ transform: 'translateZ(6px)' }}>
-                                    Cancels anytime. Renews at {yearlyPriceText}/yr.
+                                    {t('Cancels anytime. Renews at')} {yearlyPriceText}/yr.
                                 </p>
                             </InteractiveCard>
 
@@ -1110,7 +1110,7 @@ export const NativelyProSettings: React.FC<NativelyProSettingsProps> = ({
                                     already defined in index.css and unused. */}
                                 <div className="relative flex items-center justify-between gap-2" style={{ transformStyle: 'preserve-3d', transform: 'translateZ(12px)' }}>
                                     <span className="badge-tier-label inline-flex items-center px-2 py-0.5 rounded-full text-text-primary text-[10px] font-semibold" style={{ letterSpacing: '0.02em' }}>
-                                        Pro · Lifetime
+                                        {t('Pro · Lifetime')}
                                     </span>
                                     <span className="badge-best-value inline-flex items-center px-2 py-0.5 rounded-full text-[9.5px] font-bold shrink-0" style={{ letterSpacing: '0.06em' }}>
                                         BEST VALUE
@@ -1153,7 +1153,7 @@ export const NativelyProSettings: React.FC<NativelyProSettingsProps> = ({
                                         crossed-out figure comes from. */}
                                 </div>
                                 <p className="relative mt-1 text-[11px] font-medium text-text-secondary" style={{ transform: 'translateZ(10px)' }}>
-                                    One-time payment. Yours forever.
+                                    {t('One-time payment. Yours forever.')}
                                 </p>
 
                                 {/* Crisp divider */}
@@ -1184,15 +1184,15 @@ export const NativelyProSettings: React.FC<NativelyProSettingsProps> = ({
                                     className="pricing-cta-lifetime relative mt-4 h-11 rounded-full text-[13px] font-semibold flex items-center justify-center gap-2 cursor-pointer focus-visible:outline-none"
                                     style={{ letterSpacing: '-0.005em', transform: 'translateZ(28px)' }}
                                 >
-                                    Lock in lifetime
+                                    {t('Lock in lifetime')}
                                 </button>
                                 {lifetimeSavingsAbs !== null ? (
                                     <p className="relative mt-2 text-center text-[10px] leading-snug text-text-secondary" style={{ transform: 'translateZ(6px)' }}>
-                                        Save ${lifetimeSavingsAbs} vs 3 years of yearly.
+                                        {t('Save $')}{lifetimeSavingsAbs} {t('vs 3 years of yearly.')}
                                     </p>
                                 ) : (
                                     <p className="relative mt-2 text-center text-[10px] leading-snug text-text-secondary" style={{ transform: 'translateZ(6px)' }}>
-                                        Pay once. Never renew.
+                                        {t('Pay once. Never renew.')}
                                     </p>
                                 )}
                             </InteractiveCard>

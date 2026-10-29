@@ -846,7 +846,7 @@ export function LocalWhisperModelPanel({ onModelConfigChanged }: LocalWhisperMod
                                                         danger / neutral — instead of five hand-rolled chip styles. */}
                                                     {inUseLabel && <AipBadge tone="info" label={inUseLabel} />}
                                                     {isRecommended && !isInUse && <AipBadge tone="ok" label={t('Recommended')} />}
-                                                    {model.requiresAppleSilicon && <AipBadge tone="neutral" label="Apple Silicon" />}
+                                                    {model.requiresAppleSilicon && <AipBadge tone="neutral" label={t('Apple Silicon')} />}
                                                 </div>
                                                 {/* Size leads because it is the one hard number, and it is the
                                                     constraint people actually weigh. Speed and accuracy are plain

@@ -50,7 +50,7 @@ export const AutoSendSection: React.FC<{
 
     return (
         <DetailSection
-            title="Send automatically"
+            title={t('Send automatically')}
             subtitle={t('When a meeting’s notes are ready, Natively sends them here by itself, once per meeting. It runs while Natively is open.')}
             after={error ? <p className={`mt-1.5 px-1 text-xs ${tones.text.danger}`}>{error}</p> : null}
         >

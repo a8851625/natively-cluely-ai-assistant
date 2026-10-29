@@ -878,7 +878,7 @@ export const IntelligenceSettings: React.FC = () => {
                       <>
                         <li>
                           <span className="font-semibold text-text-primary">{t('1. Paste your Hindsight Cloud address below.')}</span> {t("If you don’t have one, sign up at")}{' '}
-                          <button type="button" onClick={() => openExternal('https://hindsight.vectorize.io')} className="text-accent-primary hover:underline">hindsight.vectorize.io</button>.
+                          <button type="button" onClick={() => openExternal('https://hindsight.vectorize.io')} className="text-accent-primary hover:underline">{t('hindsight.vectorize.io')}</button>.
                         </li>
                         <li>
                           <span className="font-semibold text-text-primary">{t('2. Paste your Cloud account key.')}</span> {t('Found in your Hindsight Cloud dashboard. The app saves it automatically — no Apply needed.')}
@@ -926,7 +926,7 @@ export const IntelligenceSettings: React.FC = () => {
                             <>
                               <CopyBlock
                                 text="export LITELLM_BASE_URL=your-gateway-url"
-                                label="LiteLLM gateway:"
+                                label={t('LiteLLM gateway:')}
                               />
                               <span className="mt-1.5 block">
                                 {t('We detected a LiteLLM gateway URL in AI Providers. The launcher forwards it automatically when started from inside Natively; if you run the script yourself, also export the URL above.')}

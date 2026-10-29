@@ -3,6 +3,7 @@ import { Check, ChevronDown, FileText, LayoutGrid, RotateCw } from 'lucide-react
 import { quickNoteTemplates } from '../../../electron/services/meeting/noteTemplates';
 import type { TemplateOption } from '../meeting/notesFeedback';
 import { NpPop } from './NpPop';
+import { useT } from '../../i18n';
 
 /**
  * The notes' template menu after Stop (2026-10-20), as Granola's Enhanced ⌄:
@@ -31,6 +32,7 @@ export const NotesTemplateMenu: React.FC<{
     needsPro: ReadonlySet<string>;
     onPick: (pick: TemplatePick) => void;
 }> = ({ currentName, currentTemplateId, modes, disabled, needsPro, onPick }) => {
+    const t = useT();
     const [open, setOpen] = useState(false);
     const rootRef = useRef<HTMLDivElement>(null);
 
@@ -46,7 +48,7 @@ export const NotesTemplateMenu: React.FC<{
     const pick = (p: TemplatePick) => { setOpen(false); onPick(p); };
     const row = 'w-full h-7 flex items-center gap-2 px-2 rounded-lg text-[13px] text-left transition-colors np-wash';
     const label = 'px-2 pt-2 pb-1 text-[11px] font-medium';
-    const pro = <span className="ml-auto pl-2 text-[11px] shrink-0" style={ink('--np-ink-tertiary')}>Needs Pro</span>;
+    const pro = <span className="ml-auto pl-2 text-[11px] shrink-0" style={ink('--np-ink-tertiary')}>{t('Needs Pro')}</span>;
 
     return (
         <div ref={rootRef} className="relative">
@@ -63,12 +65,12 @@ export const NotesTemplateMenu: React.FC<{
                 <span className="truncate max-w-[180px]">{currentName}</span>
                 <ChevronDown className="w-3.5 h-3.5" strokeWidth={2} style={ink('--np-ink-secondary')} />
             </button>
-            <NpPop open={open} origin="top left" role="menu" aria-label="Notes template" className="absolute left-0 top-full mt-1.5 z-40 w-[248px] max-h-[380px] overflow-y-auto p-1">
+            <NpPop open={open} origin="top left" role="menu" aria-label={t('Notes template')} className="absolute left-0 top-full mt-1.5 z-40 w-[248px] max-h-[380px] overflow-y-auto p-1">
                 <button type="button" role="menuitem" onClick={() => pick({ kind: 'rewrite' })} className={row} style={ink('--np-ink')}>
                     <RotateCw className="w-4 h-4 shrink-0" strokeWidth={1.75} style={ink('--np-ink-secondary')} />
-                    <span className="flex-1 truncate">Rewrite notes</span>
+                    <span className="flex-1 truncate">{t('Rewrite notes')}</span>
                 </button>
-                <div className={label} style={ink('--np-ink-tertiary')}>Templates</div>
+                <div className={label} style={ink('--np-ink-tertiary')}>{t('Templates')}</div>
                 {quickNoteTemplates().map((t) => (
                     <button key={t.id} type="button" role="menuitemradio" aria-checked={t.id === currentTemplateId} onClick={() => pick({ kind: 'template', id: t.id, name: t.name })} className={row} style={ink('--np-ink')}>
                         <FileText className="w-4 h-4 shrink-0" strokeWidth={1.75} style={ink('--np-ink-secondary')} />
@@ -78,11 +80,11 @@ export const NotesTemplateMenu: React.FC<{
                 ))}
                 <button type="button" role="menuitem" onClick={() => pick({ kind: 'gallery' })} className={row} style={ink('--np-ink')}>
                     <LayoutGrid className="w-4 h-4 shrink-0" strokeWidth={1.75} style={ink('--np-ink-secondary')} />
-                    <span className="flex-1 truncate">All templates…</span>
+                    <span className="flex-1 truncate">{t('All templates…')}</span>
                 </button>
                 {modes.length > 0 && (
                     <>
-                        <div className={label} style={ink('--np-ink-tertiary')}>Modes</div>
+                        <div className={label} style={ink('--np-ink-tertiary')}>{t('Modes')}</div>
                         {modes.map((m) => {
                             const on = !currentTemplateId && m.current;
                             return (

@@ -4,6 +4,7 @@ import StarterKit from '@tiptap/starter-kit';
 import { TaskItem, TaskList } from '@tiptap/extension-list';
 import { Placeholder } from '@tiptap/extensions';
 import { Markdown } from '@tiptap/markdown';
+import { useT } from '../../i18n';
 import { Extension } from '@tiptap/core';
 import { Plugin, PluginKey, Selection, TextSelection } from '@tiptap/pm/state';
 import type { Node as PMNode } from '@tiptap/pm/model';
@@ -145,6 +146,7 @@ export const NotesEditor = forwardRef<NotesEditorHandle, {
     /** "Shorten" on the selection toolbar. */
     className?: string;
 }>(({ value, onChange, editable, hookTyping, onEngage, onTemplate, className }, ref) => {
+    const t = useT();
     const lastMarkdown = useRef(value);
     const emitted = useRef<Set<string>>(new Set());
     const onChangeRef = useRef(onChange);
@@ -444,7 +446,7 @@ export const NotesEditor = forwardRef<NotesEditorHandle, {
                         return (
                             <React.Fragment key={key}>
                                 {label && (
-                                    <div className={`px-2 pb-1 text-[11px] font-medium ${i > 0 ? 'pt-2' : 'pt-1'}`} style={{ color: 'var(--np-ink-tertiary)' }}>Templates</div>
+                                    <div className={`px-2 pb-1 text-[11px] font-medium ${i > 0 ? 'pt-2' : 'pt-1'}`} style={{ color: 'var(--np-ink-tertiary)' }}>{t('Templates')}</div>
                                 )}
                                 <button
                                     type="button"

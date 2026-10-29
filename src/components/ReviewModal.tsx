@@ -25,6 +25,7 @@ import { Star, X, Lock, Check } from "lucide-react"
 import "./ReviewModal.css"
 import { GenieModal } from "./ui/GenieModal"
 import { useResolvedTheme } from "../hooks/useResolvedTheme"
+import { useT } from '../i18n';
 
 const MAX_CHARS = 300
 
@@ -148,6 +149,7 @@ const ReviewModal: React.FC<ReviewModalProps> = ({
     submitReview,
     updateTestimonial,
 }) => {
+    const t = useT();
     const reduced = useReducedMotion() ?? false
     const isLight = useResolvedTheme() === "light"
     const [step, setStep] = useState<Step>("review")
@@ -431,7 +433,7 @@ const ReviewModal: React.FC<ReviewModalProps> = ({
                         type="button"
                         onClick={dismissLaterAndClose}
                         disabled={busy}
-                        aria-label="Close"
+                        aria-label={t('Close')}
                         className={`review-close${step === "thanks" ? "" : " is-over-art"}`}
                     >
                         <X size={16} strokeWidth={1.6} />
@@ -587,6 +589,7 @@ const StepReview: React.FC<StepReviewProps> = ({
     onSubmit, onDismissLater, onDismissForever, textareaRef,
     suppressStarFocusPreview, prompted, reduced,
 }) => {
+    const t = useT();
     const remaining = maxChars - text.length
     const showCounter = remaining <= 60
     const canSubmit = rating >= 1 && rating <= 5 && !submitting
@@ -607,21 +610,21 @@ const StepReview: React.FC<StepReviewProps> = ({
     return (
         <StepFrame variant="review" reduced={reduced}>
             <section className="review-column">
-                <span className="review-eyebrow">Review · 1 of 3</span>
+                <span className="review-eyebrow">{t('Review · 1 of 3')}</span>
                 <h2 id="review-modal-title-review" className="review-headline">
-                    How is Natively<br />treating you?
+                    {t('How is Natively')}<br />{t('treating you?')}
                 </h2>
                 {/* The standfirst's first line sets the width of the stars and
                     the note under it, so the three share a right edge. */}
                 <div className="review-fit">
                 <p className="review-standfirst">
-                    One rating, thirty seconds. It genuinely shapes<br />what we build next.
+                    {t('One rating, thirty seconds. It genuinely shapes')}<br />{t('what we build next.')}
                 </p>
 
                 <div
                     className="review-rating-rail"
                     role="radiogroup"
-                    aria-label="Star rating"
+                    aria-label={t('Star rating')}
                     onMouseLeave={() => setHoverRating(0)}
                 >
                     {[1, 2, 3, 4, 5].map((n, i) => (
@@ -677,10 +680,10 @@ const StepReview: React.FC<StepReviewProps> = ({
                         ref={textareaRef}
                         value={text}
                         onChange={(e) => setText(e.target.value.slice(0, maxChars))}
-                        placeholder="What worked, what didn't, what surprised you…"
+                        placeholder={t("What worked, what didn't, what surprised you…")}
                         rows={3}
                         disabled={submitting}
-                        aria-label="Optional feedback"
+                        aria-label={t('Optional feedback')}
                         className="review-note-input"
                     />
                     <AnimatePresence initial={false}>
@@ -709,15 +712,15 @@ const StepReview: React.FC<StepReviewProps> = ({
                         transition={SPRING_SNAPPY}
                         className="review-cta"
                     >
-                        {submitting ? <><Spinner tone="ink" reduced={reduced} />Sending</> : "Send rating"}
+                        {submitting ? <><Spinner tone="ink" reduced={reduced} />{t('Sending')}</> : "Send rating"}
                     </motion.button>
                     {prompted && (
                         <div className="review-quiet-row">
                             <button type="button" onClick={onDismissLater} disabled={submitting} className="review-quiet">
-                                Maybe later
+                                {t('Maybe later')}
                             </button>
                             <button type="button" onClick={onDismissForever} disabled={submitting} className="review-quiet is-faint">
-                                Never ask
+                                {t('Never ask')}
                             </button>
                         </div>
                     )}
@@ -749,6 +752,7 @@ const StepTestimonial: React.FC<StepTestimonialProps> = ({
     name, setName, prefillName = "", namePrefillSuggested, onAcceptNamePrefill,
     busy, action, error, onSave, onKeepAnonymous, reduced,
 }) => {
+    const t = useT();
     // Save credits the review under `name` — a blank name has nothing to
     // credit, so it stays disabled until one is entered. Keep anonymous never
     // reads the field, so it is available throughout.
@@ -759,12 +763,12 @@ const StepTestimonial: React.FC<StepTestimonialProps> = ({
             <section className="review-column">
                 {/* Confirms step 1 landed. One count only: "2 of 3" is the step,
                     and a second "x of 5" beside it read as a second counter. */}
-                <span className="review-eyebrow">Rating saved · 2 of 3</span>
+                <span className="review-eyebrow">{t('Rating saved · 2 of 3')}</span>
                 <h2 id="review-modal-title-testimonial" className="review-headline">
-                    Whose words<br />are these?
+                    {t('Whose words')}<br />{t('are these?')}
                 </h2>
                 <p className="review-standfirst">
-                    Sign it, or send the very same words unsigned. Only the byline changes.
+                    {t('Sign it, or send the very same words unsigned. Only the byline changes.')}
                 </p>
 
                 <div className="review-signature">
@@ -773,8 +777,8 @@ const StepTestimonial: React.FC<StepTestimonialProps> = ({
                         onChange={(e) => setName(e.target.value)}
                         disabled={busy}
                         autoComplete="name"
-                        aria-label="Your name"
-                        placeholder="Your name"
+                        aria-label={t('Your name')}
+                        placeholder={t('Your name')}
                         className="review-signature-input"
                     />
                     <span className="review-signature-rule" aria-hidden />
@@ -792,7 +796,7 @@ const StepTestimonial: React.FC<StepTestimonialProps> = ({
                             onClick={onAcceptNamePrefill}
                             className="review-prefill"
                         >
-                            Use <strong>{prefillName.trim()}</strong>
+                            {t('Use')} <strong>{prefillName.trim()}</strong>
                         </motion.button>
                     )}
                 </AnimatePresence>
@@ -809,7 +813,7 @@ const StepTestimonial: React.FC<StepTestimonialProps> = ({
                             transition={SPRING_SNAPPY}
                             className="review-cta"
                         >
-                            {action === "credited" ? <><Spinner tone="ink" reduced={reduced} />Signing</> : "Save with name"}
+                            {action === "credited" ? <><Spinner tone="ink" reduced={reduced} />{t('Signing')}</> : "Save with name"}
                         </motion.button>
                         <motion.button
                             type="button"
@@ -819,7 +823,7 @@ const StepTestimonial: React.FC<StepTestimonialProps> = ({
                             transition={SPRING_SNAPPY}
                             className="review-ghost"
                         >
-                            {action === "anonymous" ? <><Spinner tone="ivory" reduced={reduced} />Sending</> : "Send anonymously"}
+                            {action === "anonymous" ? <><Spinner tone="ivory" reduced={reduced} />{t('Sending')}</> : "Send anonymously"}
                         </motion.button>
                     </div>
                     {/* Both buttons above GRANT publish permission
@@ -828,7 +832,7 @@ const StepTestimonial: React.FC<StepTestimonialProps> = ({
                         click outside all leave this step without a call. */}
                     <p className="review-fineprint">
                         <Lock size={10} strokeWidth={1.7} aria-hidden />
-                        Never published without permission. Removal on request.
+                        {t('Never published without permission. Removal on request.')}
                     </p>
                 </div>
             </section>
@@ -855,6 +859,7 @@ const StepThanks: React.FC<{
     attributionSkipped: boolean
     reduced: boolean
 }> = ({ displayNamePublicly, name, attributionSkipped, reduced }) => {
+    const t = useT();
     const byline = displayNamePublicly && name.trim() ? name.trim() : "Anonymous Natively user"
     // Staggered so the eye lands seal → headline → byline in one beat.
     const step = (i: number) => ({
@@ -881,17 +886,17 @@ const StepThanks: React.FC<{
             </motion.span>
 
             <motion.h2 id="review-modal-title-thanks" className="review-receipt-headline" {...step(0)}>
-                Received
+                {t('Received')}
             </motion.h2>
 
             {attributionSkipped ? (
                 <motion.p className="review-receipt-only" {...step(1)}>
-                    Your rating was recorded.
+                    {t('Your rating was recorded.')}
                 </motion.p>
             ) : (
                 <>
                     <motion.p className="review-receipt-note" {...step(1)}>
-                        Published as
+                        {t('Published as')}
                     </motion.p>
                     <motion.p className="review-byline" {...step(2)}>
                         {byline}

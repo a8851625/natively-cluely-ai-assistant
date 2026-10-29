@@ -3,6 +3,7 @@ import { RU_GENERATED } from './i18n.ru.generated';
 import { RU_GENERATED2 } from './i18n.ru.generated2';
 import { ZH_GENERATED } from './i18n.zh.generated';
 import { ZH_GENERATED2 } from './i18n.zh.generated2';
+import { ZH_GENERATED3 } from './i18n.zh.generated3';
 import { JA_GENERATED } from './i18n.ja.generated';
 import { ES_GENERATED } from './i18n.es.generated';
 import { ONBOARDING_RU, ONBOARDING_ZH, ONBOARDING_JA, ONBOARDING_ES } from './i18n.onboarding';
@@ -302,6 +303,7 @@ const ZH: Record<string, string> = {
     // Wave 2 — keys added after the first generated pass, plus the entries the
     // first file left as "Key": "Key". Spread second so it wins collisions.
     ...ZH_GENERATED2,
+    ...ZH_GENERATED3,
     ...ONBOARDING_ZH,
     ...DIRECT_ASSIST_ZH,
     ...CREDENTIAL_STORES_ZH,
@@ -373,6 +375,15 @@ const DICT: Record<Exclude<Lang, 'en'>, Record<string, string>> = {
     es: ES,
 };
 
+// Non-hook translator, for the two places React hooks cannot reach: class
+// components (ErrorBoundary) and module-scope render helpers. The provider
+// keeps `currentLang` in sync; anything that has to repaint on a language
+// switch still uses useT() so it subscribes to the context.
+let currentLang: Lang = 'en';
+export function translate(text: string): string {
+    return currentLang === 'en' ? text : (DICT[currentLang][text] ?? text);
+}
+
 interface LanguageContextValue {
     lang: Lang;
     setLang: (l: Lang) => void;
@@ -411,6 +422,7 @@ function readStoredLang(): Lang {
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [lang, setLangState] = useState<Lang>(readStoredLang);
+    currentLang = lang;
 
     const setLang = useCallback((l: Lang) => {
         setLangState(l);

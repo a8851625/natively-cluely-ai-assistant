@@ -8,6 +8,7 @@ import { formatMeter, normalizeQuota, type UsageMeter } from '../types/nativelyU
 import { GenieModal } from './ui/GenieModal';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
 import '../ui-components/LiquidGlassButton.css';
+import { useT } from '../i18n';
 
 interface NearLimitBucket {
     label: string;
@@ -23,6 +24,7 @@ const THRESHOLD_PCT    = 90;
 const UPGRADE_URL      = 'https://checkout.dodopayments.com/buy/pdt_0NbFixGmD8CSeawb5qvVl';
 
 export const NativelyQuotaBanner: React.FC = () => {
+    const t = useT();
     const [nearLimitBuckets, setNearLimitBuckets] = useState<NearLimitBucket[]>([]);
     const [visible, setVisible] = useState(false);
     // The card is the Liquid Glass kit's clear pane (.lg-notice), shared with
@@ -126,11 +128,11 @@ export const NativelyQuotaBanner: React.FC = () => {
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                     <AlertTriangle size={14} className={`${amber} shrink-0`} strokeWidth={2} />
-                    <span className="text-[13px] font-semibold text-text-primary">Natively quota almost full</span>
+                    <span className="text-[13px] font-semibold text-text-primary">{t('Natively quota almost full')}</span>
                 </div>
                 <button
                     onClick={() => setVisible(false)}
-                    aria-label="Dismiss"
+                    aria-label={t('Dismiss')}
                     className="flex text-text-tertiary hover:text-text-primary transition-colors shrink-0 cursor-pointer"
                 >
                     <X size={14} strokeWidth={2} />
@@ -151,12 +153,12 @@ export const NativelyQuotaBanner: React.FC = () => {
 
             {/* Footer */}
             <div className="flex items-center justify-between pt-0.5">
-                <span className="text-[11px] text-text-secondary">Resets on your next billing date</span>
+                <span className="text-[11px] text-text-secondary">{t('Resets on your next billing date')}</span>
                 <button
                     onClick={() => (window.electronAPI as any)?.openExternal?.(UPGRADE_URL, { surface: 'quota_banner' })}
                     className={`flex items-center gap-1 text-[11px] font-semibold ${amber} ${isLight ? 'hover:text-amber-700' : 'hover:text-amber-300'} transition-colors cursor-pointer`}
                 >
-                    Upgrade <ArrowUpRight size={11} strokeWidth={2.5} />
+                    {t('Upgrade')} <ArrowUpRight size={11} strokeWidth={2.5} />
                 </button>
             </div>
         </GenieModal>

@@ -23,18 +23,30 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const read = (rel) => readFileSync(join(HERE, rel), 'utf8');
+// Components pass their copy through t('…') so it can be translated. The copy and
+// the markup around it did not move, only the call did, so unwrap it before
+// asserting on rendered text. Files that assert on the t('…') call itself read
+// the raw source through readRaw().
+const untranslate = (src) => src
+    .replace(/([\w-]+)=\{t\((['"])([\s\S]*?)\2\)\}/g, '$1="$3"')
+    .replace(/\{t\((['"])([\s\S]*?)\1\)\}/g, '$2');
+
+const readRaw = (rel) => readFileSync(join(HERE, rel), 'utf8');
+const read = (rel) => untranslate(readRaw(rel));
 /** Strip comments so prose describing a behaviour can't satisfy a check. */
 const live = (src) => src.replace(/\{\/\*[\s\S]*?\*\/\}/g, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/[^\n]*/gm, '');
 
 const ABOUT = live(read('../AboutSection.tsx'));
+// The two checks below look for the call, not the copy.
+const ABOUT_RAW = live(readRaw('../AboutSection.tsx'));
+const MODAL_RAW = live(readRaw('../ReviewModal.tsx'));
 const MODAL = live(read('../ReviewModal.tsx'));
 const HOST = live(read('../ReviewPromptHost.tsx'));
 const GENIE = read('../ui/GenieModal.tsx');
 
 describe('About: the Reviews section', () => {
     test('the row opens the review card, and the card is told the user opened it', () => {
-        assert.match(ABOUT, /title=\{t\('Reviews'\)\}/, 'the section has its heading');
+        assert.match(ABOUT_RAW, /title=\{t\('Reviews'\)\}/, 'the section has its heading');
         assert.match(ABOUT, /onClick=\{\(\) => setReviewOpen\(true\)\}/, 'the button opens the card');
         assert.match(ABOUT, /<ReviewModal[\s\S]*?isOpen=\{reviewOpen\}[\s\S]*?prompted=\{false\}[\s\S]*?\/>/,
             'opened from About the card is not a prompt');
@@ -54,7 +66,7 @@ describe('About: the Reviews section', () => {
         assert.match(ABOUT, /res\.local\?\.has_reviewed \|\| res\.backend\?\.state\?\.has_reviewed/,
             'this device\'s record or the server\'s, whichever knows');
         assert.match(ABOUT, /if \(res\?\.ok\) setHasReviewed\(true\)/, 'and a review sent just now counts at once');
-        assert.match(ABOUT, /control=\{hasReviewed \? \([\s\S]*?t\('Sent'\)[\s\S]*?\) : \([\s\S]*?t\('Write a review'\)/,
+        assert.match(ABOUT_RAW, /control=\{hasReviewed \? \([\s\S]*?t\('Sent'\)[\s\S]*?\) : \([\s\S]*?t\('Write a review'\)/,
             'the row shows "Sent" in place of the button');
     });
 
@@ -245,7 +257,7 @@ describe('About: the Reviews section is translated', () => {
 
     for (const text of STRINGS) {
         test(`"${text}" is used by About and has a line in every language`, () => {
-            assert.ok(ABOUT.includes(`t('${text}')`), 'About asks for it by this exact text');
+            assert.ok(ABOUT_RAW.includes(`t('${text}')`), 'About asks for it by this exact text');
             for (const [lang, table] of Object.entries(TABLES)) {
                 const line = table.match(new RegExp(`^\\s*['"]${esc(text)}['"]: ['"](.+)['"],$`, 'm'));
                 assert.ok(line, `${lang} has no line for it`);

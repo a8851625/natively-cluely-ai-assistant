@@ -4249,7 +4249,7 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                         <DialogPrimitive.Portal forceMount>
                             <GenieModal
                                 open={followUpOpen}
-                                label="Follow-up email"
+                                label={t('Follow-up email')}
                                 keepPictures={false}
                                 zIndex={FOLLOW_UP_DIALOG_LAYER}
                                 backdropClassName={isLight ? 'bg-black/[0.16]' : 'bg-black/55'}

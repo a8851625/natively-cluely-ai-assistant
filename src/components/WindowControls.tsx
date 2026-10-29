@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Minus, X } from 'lucide-react';
 import { isMac } from '../utils/platformUtils';
+import { useT } from '../i18n';
 
 /**
  * WindowControls — Custom minimize / maximize / close buttons.
@@ -8,6 +9,7 @@ import { isMac } from '../utils/platformUtils';
  * The null-return is at the TOP, before any hooks, satisfying React's rules.
  */
 const WindowControls: React.FC = () => {
+  const t = useT();
   // Return null early if on macOS — BEFORE any hooks would be called.
   // NOTE: isMac is a module-level constant evaluated once at module load, so it
   // is safe to use as an early-return guard (same value every render, no hook).
@@ -43,7 +45,7 @@ const WindowControls: React.FC = () => {
       <button
         onClick={handleMinimize}
         className="flex items-center justify-center w-[46px] h-full border-0 bg-transparent text-text-secondary hover:text-text-primary hover:bg-white/10 transition-colors duration-100"
-        title="Minimize"
+        title={t('Minimize')}
       >
         <Minus size={16} strokeWidth={1.5} />
       </button>
@@ -66,7 +68,7 @@ const WindowControls: React.FC = () => {
       <button
         onClick={handleClose}
         className="flex items-center justify-center w-[46px] h-full border-0 bg-transparent text-text-secondary hover:text-white hover:bg-red-500 transition-colors duration-100"
-        title="Close"
+        title={t('Close')}
       >
         <X size={16} strokeWidth={1.5} />
       </button>

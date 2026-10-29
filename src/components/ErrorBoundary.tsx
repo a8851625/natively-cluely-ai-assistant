@@ -6,6 +6,8 @@
 
 import React, { Component, ReactNode } from 'react';
 import { RefreshCw, AlertTriangle } from 'lucide-react';
+// translate(), not useT(): this is a class component, where hooks are illegal.
+import { translate } from '../i18n';
 
 interface Props {
     children: ReactNode;
@@ -86,10 +88,10 @@ export class ErrorBoundary extends Component<Props, State> {
             >
                 <AlertTriangle size={36} color="#ff4444" style={{ marginBottom: '4px' }} />
                 <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#fff' }}>
-                    {context} crashed
+                    {context} {translate('crashed')}
                 </h2>
                 <p style={{ margin: 0, fontSize: '12px', color: '#888', maxWidth: '320px', lineHeight: 1.5 }}>
-                    An unexpected error occurred. Your data is safe — click below to recover.
+                    {translate('An unexpected error occurred. Your data is safe — click below to recover.')}
                 </p>
                 {this.state.errorMessage && (
                     <code style={{
@@ -118,7 +120,7 @@ export class ErrorBoundary extends Component<Props, State> {
                         }}
                     >
                         <RefreshCw size={13} />
-                        Try to recover
+                        {translate('Try to recover')}
                     </button>
                     <button
                         onClick={this.handleHardReload}
@@ -130,7 +132,7 @@ export class ErrorBoundary extends Component<Props, State> {
                         }}
                     >
                         <RefreshCw size={13} />
-                        Reload UI
+                        {translate('Reload UI')}
                     </button>
                 </div>
             </div>

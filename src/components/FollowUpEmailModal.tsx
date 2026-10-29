@@ -271,7 +271,7 @@ const FollowUpEmailModal: React.FC<FollowUpEmailModalProps> = ({ isOpen, onClose
                                         <div className="w-4 h-4 relative flex items-center justify-center">
                                             <span className="font-bold text-lg leading-none bg-clip-text text-transparent bg-gradient-to-r from-blue-500 via-red-500 to-yellow-500">G</span>
                                         </div>
-                                        <span className="text-[#E8EAED] text-[13px] font-medium tracking-wide">Gmail</span>
+                                        <span className="text-[#E8EAED] text-[13px] font-medium tracking-wide">{t('Gmail')}</span>
                                     </button>
                                 </div>
 

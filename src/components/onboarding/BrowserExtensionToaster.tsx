@@ -19,6 +19,7 @@ import { useResolvedTheme } from '../../hooks/useResolvedTheme';
 import chromeArt from '../../assets/cards/chrome.jpg';
 import { GenieModal } from '../ui/GenieModal';
 import { copyText } from '../../lib/copyText';
+import { useT } from '../../i18n';
 
 const MIN_VERSION = '2.8.0';
 
@@ -154,6 +155,7 @@ interface Props {
 }
 
 export const BrowserExtensionToaster: React.FC<Props> = ({ isOpen, onDismiss }) => {
+  const t = useT();
   const [opening, setOpening]       = useState(false);
   // The store link did not open: say so and offer the link to copy.
   const [storeFailed, setStoreFailed] = useState(false);
@@ -318,7 +320,7 @@ export const BrowserExtensionToaster: React.FC<Props> = ({ isOpen, onDismiss }) 
             fontSize: '12px', fontWeight: 500, letterSpacing: '-0.005em',
             color: INK.quiet, margin: '0 0 22px',
           }}>
-            Natively for Chrome
+            {t('Natively for Chrome')}
           </motion.div>
 
           {/*
@@ -332,9 +334,9 @@ export const BrowserExtensionToaster: React.FC<Props> = ({ isOpen, onDismiss }) 
             letterSpacing: '-0.035em', lineHeight: 1.02,
             margin: '0 0 20px', color: INK.strong,
           }}>
-            Skip the
+            {t('Skip the')}
             <br />
-            Screenshot.
+            {t('Screenshot.')}
           </motion.h2>
 
           <motion.p variants={item} id="ext-toast-desc" style={{
@@ -342,8 +344,7 @@ export const BrowserExtensionToaster: React.FC<Props> = ({ isOpen, onDismiss }) 
             color: INK.body, margin: 0, maxWidth: '300px',
             textWrap: 'pretty',
           } as React.CSSProperties}>
-            The page you are on goes straight to the assistant, so every
-            answer starts with the full context and none of the copying.
+            {t('The page you are on goes straight to the assistant, so every answer starts with the full context and none of the copying.')}
           </motion.p>
 
           <motion.dl variants={item} style={{
@@ -382,7 +383,7 @@ export const BrowserExtensionToaster: React.FC<Props> = ({ isOpen, onDismiss }) 
                 flexBasis: '100%', margin: 0, fontSize: '12px', lineHeight: 1.45,
                 color: isLight ? '#B42318' : '#FCA5A5',
               }}>
-                Couldn't open the Chrome Web Store.{' '}
+                {t("Couldn't open the Chrome Web Store.")}{' '}
                 <button
                   type="button"
                   onClick={copyStoreLink}
@@ -461,7 +462,7 @@ export const BrowserExtensionToaster: React.FC<Props> = ({ isOpen, onDismiss }) 
               onFocus={e => (e.currentTarget.style.color = INK.body)}
               onBlur={e => (e.currentTarget.style.color = INK.faint)}
             >
-              Not now
+              {t('Not now')}
             </button>
           </motion.div>
         </motion.div>
@@ -494,7 +495,7 @@ export const BrowserExtensionToaster: React.FC<Props> = ({ isOpen, onDismiss }) 
             <button
               type="button"
               onClick={handleDismiss}
-              aria-label="Close"
+              aria-label={t('Close')}
               style={{
                 position: 'absolute', top: '8px', right: '8px', zIndex: 2,
                 width: '30px', height: '30px',

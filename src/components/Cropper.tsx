@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Crosshair } from 'lucide-react';
+import { useT } from '../i18n';
 
 /**
  * Cropper component provides a visual interface for selecting a screen area.
@@ -15,6 +16,7 @@ import { Crosshair } from 'lucide-react';
  *    viewport still completes the selection instead of leaving it stuck.
  */
 const Cropper: React.FC = () => {
+    const t = useT();
     const [startPos, setStartPos] = useState<{ x: number, y: number } | null>(null);
     const [currentPos, setCurrentPos] = useState<{ x: number, y: number } | null>(null);
     const [hudPosition, setHudPosition] = useState<{ x: number, y: number } | null>(null);
@@ -250,7 +252,7 @@ const Cropper: React.FC = () => {
                                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
                             }}
                         >
-                            Select area
+                            {t('Select area')}
                         </span>
 
                         <div
@@ -281,7 +283,7 @@ const Cropper: React.FC = () => {
                                         : 'rgba(255, 255, 255, 0.4)'
                                 }}
                             >
-                                to cancel
+                                {t('to cancel')}
                             </span>
                         </div>
                     </div>

@@ -93,7 +93,7 @@ export const OverlayMockup: React.FC<{
                     <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden">
                         <img
                             src={icon}
-                            alt="Natively"
+                            alt={t('Natively')}
                             className="top-pill-logo w-8 h-8 object-contain opacity-95 force-black-icon"
                             draggable="false"
                         />
@@ -157,13 +157,13 @@ export const OverlayMockup: React.FC<{
                             {theme === 'lavender' ? (
                                 <div className="hlg-button hlg-lavender hlg-sm hero-pill hero-mono shrink-0" style={{ width: MODEL_SELECTOR_WIDTH }}>
                                     <span className="hlg-content">
-                                        <ModelSelectorLabel>Gemini 3 Flash</ModelSelectorLabel>
+                                        <ModelSelectorLabel>{t('Gemini 3 Flash')}</ModelSelectorLabel>
                                         <svg className="shrink-0" width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M3 4l2 2 2-2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
                                     </span>
                                 </div>
                             ) : (
                             <div className="flex items-center gap-1 pl-3 pr-1.5 h-7 border rounded-[9px] text-xs font-medium text-left shrink-0 overlay-control-surface overlay-text-interactive" style={{ ...appearance.controlStyle, width: MODEL_SELECTOR_WIDTH }}>
-                                <ModelSelectorLabel>Gemini 3 Flash</ModelSelectorLabel>
+                                <ModelSelectorLabel>{t('Gemini 3 Flash')}</ModelSelectorLabel>
                                 <ChevronDown size={12} className="shrink-0" />
                             </div>
                             )}

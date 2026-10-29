@@ -381,7 +381,7 @@ export const AboutSection: React.FC<AboutSectionProps> = ({ onNavigate, onOpenMo
                     className={isMac ? 'w-[88px] h-[88px]' : 'w-[76px] h-[76px] my-1.5'}
                     draggable={false}
                 />
-                <h2 className="mt-2 text-[22px] leading-7 font-bold tracking-[-0.02em] text-text-primary">Natively</h2>
+                <h2 className="mt-2 text-[22px] leading-7 font-bold tracking-[-0.02em] text-text-primary">{t('Natively')}</h2>
                 <div className="mt-0.5 text-xs text-text-secondary tabular-nums select-text">{versionLine}</div>
             </header>
 
@@ -488,9 +488,9 @@ export const AboutSection: React.FC<AboutSectionProps> = ({ onNavigate, onOpenMo
                            rounded-[7px] is the tile's 8px radius less its 1px border,
                            so the photo meets the hairline exactly. */
                         icon={<img src={evinProfile} alt="" className="w-full h-full object-cover rounded-[7px]" draggable={false} />}
-                        title="Evin John"
+                        title={t('Evin John')}
                         badge={<LiquidGlassBadge variant="neutral">{t('Creator')}</LiquidGlassBadge>}
-                        description="I build software that stays out of the way."
+                        description={t('I build software that stays out of the way.')}
                         control={iconLinks(CREATOR_LINKS)}
                     />
                     {actions.map(({ title, body, action }) => (

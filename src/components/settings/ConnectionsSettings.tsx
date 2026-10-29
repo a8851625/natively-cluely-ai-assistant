@@ -465,7 +465,7 @@ const SlackPanel: React.FC<{ webhooks: ConnectionsStatus['slack']['webhooks']; b
                 {primary}
             </ActionArea>
             {n > 0 && (
-                <DetailSection title="Channels">
+                <DetailSection title={t('Channels')}>
                     <ListCard inset="tile">
                         {webhooks.map((w) => (
                             <div key={w.id} className={ROW}>
@@ -602,7 +602,7 @@ export const ConnectionsSettings: React.FC = () => {
                     onChanged={reload}
                 >
                     {svc === 'notion' && status.notion.connected && (
-                        <DetailSection title="Where pages go">
+                        <DetailSection title={t('Where pages go')}>
                             <NotionParentPicker current={status.notion.parent} onPicked={reload} />
                         </DetailSection>
                     )}

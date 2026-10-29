@@ -308,7 +308,7 @@ export const DetailSection: React.FC<{ title: string; subtitle?: React.ReactNode
 export const HowItWorks: React.FC<{ lines: string[] }> = ({ lines }) => {
     const t = useT();
     return (
-        <PlainSection title="How it works">
+        <PlainSection title={t('How it works')}>
             {lines.map((line, i) => <DotRow key={i}>{t(line)}</DotRow>)}
         </PlainSection>
     );

@@ -194,7 +194,7 @@ interface CustomSelectProps {
     badges?: Record<string, string>;
 }
 
-const CustomSelect: React.FC<CustomSelectProps> = ({ label, value, options, onChange, placeholder = "Select device", disabled = false, badges }) => {
+const CustomSelect: React.FC<CustomSelectProps> = ({ label, value, options, onChange, placeholder = '', disabled = false, badges }) => {
     const t = useT();
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = React.useRef<HTMLDivElement>(null);
@@ -223,7 +223,9 @@ const CustomSelect: React.FC<CustomSelectProps> = ({ label, value, options, onCh
         return () => document.removeEventListener('keydown', onKey, true);
     }, [isOpen]);
 
-    const selectedLabel = options.find(o => o.deviceId === value)?.label || placeholder;
+    // The default used to sit in the parameter list, where it cannot reach the
+    // hook; resolving it here keeps the same copy but translatable.
+    const selectedLabel = options.find(o => o.deviceId === value)?.label || placeholder || t('Select device');
 
     return (
         <div className="bg-bg-card rounded-xl p-4 border border-border-subtle" ref={containerRef}>
@@ -3087,14 +3089,14 @@ const SettingsOverlay: React.FC<SettingsOverlayProps> = ({
                                                                         <div className="flex items-center gap-2.5 min-w-0">
                                                                             <Terminal size={14} className={`${isLight ? 'text-amber-700' : 'text-amber-400'} shrink-0`} />
                                                                             <p className={`text-xs ${isLight ? 'text-amber-800' : 'text-amber-200/80'} leading-snug truncate`}>
-                                                                                Logs → <span className={`font-mono ${isLight ? 'text-amber-900' : 'text-amber-300'}`}>~/Documents/natively_debug.log</span>
+                                                                                {t('Logs →')} <span className={`font-mono ${isLight ? 'text-amber-900' : 'text-amber-300'}`}>{t('~/Documents/natively_debug.log')}</span>
                                                                             </p>
                                                                         </div>
                                                                         <button
                                                                             onClick={() => window.electronAPI?.openLogFile?.()}
                                                                             className={`shrink-0 text-[11px] font-medium ${isLight ? 'text-amber-800 hover:text-amber-900' : 'text-amber-400 hover:text-amber-300'} transition-colors px-2 py-0.5 rounded-md bg-amber-500/15 hover:bg-amber-500/25`}
                                                                         >
-                                                                            Open
+                                                                            {t('Open')}
                                                                         </button>
                                                                     </div>
                                                                     <p className={`text-xs ${isLight ? 'text-amber-800' : 'text-amber-200/80'} leading-snug mt-2`}>

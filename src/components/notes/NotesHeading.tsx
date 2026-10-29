@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CalendarDays, Check, Folder, Link2, Plus, Users, X } from 'lucide-react';
 import { NpPop } from './NpPop';
 import { eventTimeRange, groupAttendees, type Attendee } from './notepadView';
+import { useT } from '../../i18n';
 
 /**
  * The notepad's heading (2026-10-20), as Granola's notes window draws it
@@ -79,6 +80,7 @@ export const NotesHeading: React.FC<{
     attendeeDraft, setAttendeeDraft, onEngageAttendee, onAddAttendee, onRemoveAttendee, onLinkEvent,
     folders, onOpenFolders, onToggleFolder, folderDraft, setFolderDraft, onEngageFolder, onCreateFolder, hookField, preview,
 }) => {
+    const t = useT();
     const [open, setOpen] = useState<'event' | 'folder' | null>(null);
     const [candidates, setCandidates] = useState<Candidate[] | null>(null);
     const rootRef = useRef<HTMLDivElement>(null);
@@ -112,7 +114,7 @@ export const NotesHeading: React.FC<{
             <div className="px-8 pt-[11px]">
                 {editingTitle ? (
                     <textarea
-                        aria-label="Meeting title"
+                        aria-label={t('Meeting title')}
                         rows={1}
                         value={titleDraft}
                         autoFocus={!titleFocusBlocked}
@@ -125,7 +127,7 @@ export const NotesHeading: React.FC<{
                         }}
                         onBlur={() => { if (hookField !== 'title') onCommitTitle(); }}
                         data-hook-typing={typing('title') ? 'true' : undefined}
-                        placeholder="New note"
+                        placeholder={t('New note')}
                         maxLength={120}
                         className="block w-full resize-none overflow-hidden bg-transparent font-plex-serif text-[24px] leading-[28px] outline-none [field-sizing:content] placeholder:text-[color:var(--np-title-placeholder)]"
                         style={ink('--np-ink-strong')}
@@ -148,13 +150,13 @@ export const NotesHeading: React.FC<{
                         type="button"
                         aria-haspopup="dialog"
                         aria-expanded={open === 'event'}
-                        title="Event details"
+                        title={t('Event details')}
                         onClick={() => { setOpen((o) => (o === 'event' ? null : 'event')); setCandidates(null); }}
                         className="np-chip np-outline h-7 rounded-full pl-[13px] pr-[11px] inline-flex items-center text-[13px] font-[430] tracking-[0.01em]"
                         style={ink('--np-ink-secondary')}
                     >
                         <CalendarDays className="w-[14px] h-[14px] mr-1.5" strokeWidth={1.5} />
-                        Today
+                        {t('Today')}
                         {info.people > 0 && (
                             <span className="ml-2 inline-flex items-center gap-1">
                                 <Users className="w-[15px] h-[15px] -translate-y-[0.5px]" strokeWidth={1.5} />
@@ -165,7 +167,7 @@ export const NotesHeading: React.FC<{
                     {folders && !preview && (
                         <button
                             type="button"
-                            aria-label="Add to folder"
+                            aria-label={t('Add to folder')}
                             aria-haspopup="dialog"
                             aria-expanded={open === 'folder'}
                             title={inFolders.length ? inFolders.map((f) => f.name).join(', ') : 'Add to folder'}
@@ -179,7 +181,7 @@ export const NotesHeading: React.FC<{
                         </button>
                     )}
 
-                        <NpPop open={open === 'event'} origin="top left" role="dialog" aria-label="Event details" className="absolute left-7 top-8 z-30 w-[280px] max-h-[70vh] overflow-y-auto text-[13px]">
+                        <NpPop open={open === 'event'} origin="top left" role="dialog" aria-label={t('Event details')} className="absolute left-7 top-8 z-30 w-[280px] max-h-[70vh] overflow-y-auto text-[13px]">
                             {info.event ? (
                                 <>
                                     <div className="p-2">
@@ -187,7 +189,7 @@ export const NotesHeading: React.FC<{
                                             <span className="mt-[3px] w-2.5 h-2.5 rounded-[3px] shrink-0" style={{ background: 'var(--np-event)' }} />
                                             <div className="min-w-0">
                                                 <p className="text-[14px] leading-4 truncate" style={ink('--np-ink-strong')}>{info.event.title || 'Calendar event'}</p>
-                                                {range && <p className="mt-1 text-[12px] leading-4" style={ink('--np-ink-secondary')}>Today · {range}</p>}
+                                                {range && <p className="mt-1 text-[12px] leading-4" style={ink('--np-ink-secondary')}>{t('Today ·')} {range}</p>}
                                             </div>
                                         </div>
                                         {info.event.link && (
@@ -197,7 +199,7 @@ export const NotesHeading: React.FC<{
                                                 className={`${row} mt-2`}
                                                 style={ink('--np-ink')}
                                             >
-                                                <Link2 className="w-4 h-4" strokeWidth={1.75} style={ink('--np-ink-secondary')} /> Join
+                                                <Link2 className="w-4 h-4" strokeWidth={1.75} style={ink('--np-ink-secondary')} /> {t('Join')}
                                             </button>
                                         )}
                                     </div>
@@ -210,12 +212,12 @@ export const NotesHeading: React.FC<{
                                             >
                                                 <Plus className="w-4 h-4 shrink-0" strokeWidth={1.75} style={ink('--np-ink-tertiary')} />
                                                 <input
-                                                    aria-label="Add attendees"
+                                                    aria-label={t('Add attendees')}
                                                     value={attendeeDraft}
                                                     onChange={(e) => setAttendeeDraft(e.target.value)}
                                                     onMouseDown={onEngageAttendee}
                                                     data-hook-typing={typing('attendee') ? 'true' : undefined}
-                                                    placeholder="Add attendees..."
+                                                    placeholder={t('Add attendees...')}
                                                     className="flex-1 min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[color:var(--np-ink-tertiary)]"
                                                     style={ink('--np-ink')}
                                                 />
@@ -229,7 +231,7 @@ export const NotesHeading: React.FC<{
                                                         <div key={p.email} className="group flex items-center justify-between gap-2 min-w-0 p-1 pl-2 rounded-lg np-wash">
                                                             <span className="min-w-0 truncate text-[13px]" style={ink('--np-ink')}>
                                                                 {p.name ?? p.email}
-                                                                {p.self && <span style={ink('--np-ink-tertiary')}> (you)</span>}
+                                                                {p.self && <span style={ink('--np-ink-tertiary')}> {t('(you)')}</span>}
                                                                 {p.name && <span style={ink('--np-ink-tertiary')}> {p.email}</span>}
                                                             </span>
                                                             {live && !p.self && (
@@ -251,7 +253,7 @@ export const NotesHeading: React.FC<{
                                     </div>
                                 </>
                             ) : (
-                                <p className="p-3 text-[13px] leading-snug" style={ink('--np-ink-secondary')}>This meeting isn&rsquo;t linked to a calendar event.</p>
+                                <p className="p-3 text-[13px] leading-snug" style={ink('--np-ink-secondary')}>{t('This meeting isn’t linked to a calendar event.')}</p>
                             )}
 
                             {live && (
@@ -264,12 +266,12 @@ export const NotesHeading: React.FC<{
                                             </button>
                                             {info.event && (
                                                 <button type="button" onClick={() => { onLinkEvent(null); setOpen(null); }} className={row} style={ink('--np-ink')}>
-                                                    <X className="w-4 h-4" strokeWidth={1.75} style={ink('--np-ink-secondary')} /> Unlink
+                                                    <X className="w-4 h-4" strokeWidth={1.75} style={ink('--np-ink-secondary')} /> {t('Unlink')}
                                                 </button>
                                             )}
                                         </>
                                     ) : candidates.length === 0 ? (
-                                        <p className="px-2 py-2 text-[12px]" style={ink('--np-ink-tertiary')}>No events around now in your calendar.</p>
+                                        <p className="px-2 py-2 text-[12px]" style={ink('--np-ink-tertiary')}>{t('No events around now in your calendar.')}</p>
                                     ) : (
                                         candidates.map((c) => (
                                             <button
@@ -291,7 +293,7 @@ export const NotesHeading: React.FC<{
                             )}
                         </NpPop>
 
-                        <NpPop open={open === 'folder' && !!folders} origin="top left" role="dialog" aria-label="Folders" className="absolute left-[148px] top-8 z-30 w-[240px] p-1 text-[13px]">
+                        <NpPop open={open === 'folder' && !!folders} origin="top left" role="dialog" aria-label={t('Folders')} className="absolute left-[148px] top-8 z-30 w-[240px] p-1 text-[13px]">
                             <div className="max-h-[240px] overflow-y-auto">
                                 {(folders ?? []).map((f) => (
                                     <button key={f.id} type="button" onClick={() => onToggleFolder(f.id, !f.inFolder)} className={row} style={ink('--np-ink')}>
@@ -308,12 +310,12 @@ export const NotesHeading: React.FC<{
                             >
                                 <Plus className="w-4 h-4 shrink-0" strokeWidth={1.75} style={ink('--np-ink-tertiary')} />
                                 <input
-                                    aria-label="New folder"
+                                    aria-label={t('New folder')}
                                     value={folderDraft}
                                     onChange={(e) => setFolderDraft(e.target.value)}
                                     onMouseDown={onEngageFolder}
                                     data-hook-typing={typing('folder') ? 'true' : undefined}
-                                    placeholder="New folder"
+                                    placeholder={t('New folder')}
                                     maxLength={80}
                                     className="flex-1 min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[color:var(--np-ink-tertiary)]"
                                     style={ink('--np-ink')}

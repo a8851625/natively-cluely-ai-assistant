@@ -8,6 +8,7 @@ import nativelyIcon from './icon.png';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
 import { stripGistTrailer } from '../lib/displayMarkup';
 import { copyText } from '../lib/copyText';
+import { useT } from '../i18n';
 
 // ============================================
 // Types
@@ -149,6 +150,7 @@ const GlobalChatOverlay: React.FC<GlobalChatOverlayProps> = ({
     onClose,
     initialQuery = '',
 }) => {
+    const t = useT();
     const [messages, setMessages] = useState<Message[]>([]);
     const [chatState, setChatState] = useState<ChatState>('idle');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -493,8 +495,8 @@ const GlobalChatOverlay: React.FC<GlobalChatOverlayProps> = ({
                     >
                         <div className="flex items-center justify-between px-4 py-3 border-b border-border-subtle shrink-0">
                             <div className="flex items-center gap-2 text-text-tertiary">
-                                <img src={nativelyIcon} className="w-3.5 h-3.5 force-black-icon opacity-50" alt="logo" />
-                                <span className="text-[13px] font-medium truncate">Search all meetings</span>
+                                <img src={nativelyIcon} className="w-3.5 h-3.5 force-black-icon opacity-50" alt={t('logo')} />
+                                <span className="text-[13px] font-medium truncate">{t('Search all meetings')}</span>
                             </div>
                             <button
                                 onClick={onClose}
@@ -536,7 +538,7 @@ const GlobalChatOverlay: React.FC<GlobalChatOverlayProps> = ({
                                     value={query}
                                     onChange={(e) => setQuery(e.target.value)}
                                     onKeyDown={handleInputKeyDown}
-                                    placeholder="Ask me anything..."
+                                    placeholder={t('Ask me anything...')}
                                     className="w-full pl-5 pr-12 py-3 bg-bg-elevated shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-border-muted rounded-full text-sm text-text-primary placeholder-text-tertiary/70 focus:outline-none transition-all"
                                 />
                                 <button

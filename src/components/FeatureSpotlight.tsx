@@ -10,6 +10,7 @@ import {
     SPONSORSHIP_EMAIL,
     SPONSORSHIP_GMAIL_COMPOSE_URL,
 } from '../lib/partnerLinks';
+import { useT } from '../i18n';
 
 // --- Types ---
 
@@ -165,6 +166,7 @@ const ARROW_INSET = 24;
 // --- Component ---
 
 export const FeatureSpotlight: React.FC = () => {
+    const t = useT();
     const [currentIndex, setCurrentIndex] = useState(0);
     const [isPaused, setIsPaused] = useState(false);
     // Which arrow the pointer is currently near, if either.
@@ -494,7 +496,7 @@ export const FeatureSpotlight: React.FC = () => {
                                                         : isSupport ? (
                                                             <span className="flex items-center gap-2">
                                                                 <Rocket size={14} className="text-[#1C1C1E]" strokeWidth={2.5} />
-                                                                Fund development
+                                                                {t('Fund development')}
                                                             </span>
                                                         ) : (currentFeature.actionLabel || 'Mark interest')
                                                     }

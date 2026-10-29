@@ -10,7 +10,15 @@ import { dirname, join } from 'node:path';
 import { applyTypedKeyAtEnd } from '../notesView.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
-const read = (p) => readFileSync(join(root, p), 'utf8');
+// Components pass their copy through t('…') so it can be translated. The copy and
+// the markup around it did not move, only the call did, so unwrap it before
+// asserting on rendered text. Files that assert on the t('…') call itself read
+// the raw source through readRaw().
+const untranslate = (src) => src
+    .replace(/([\w-]+)=\{t\((['"])([\s\S]*?)\2\)\}/g, '$1="$3"')
+    .replace(/\{t\((['"])([\s\S]*?)\1\)\}/g, '$2');
+
+const read = (p) => untranslate(readFileSync(join(root, p), 'utf8'));
 const key = (keyCode, chars = '', isKeyDown = true) => ({ keyCode, chars, isKeyDown });
 
 test('characters go at the end; key-ups and empty keys change nothing', () => {

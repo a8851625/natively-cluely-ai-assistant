@@ -23,7 +23,15 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const stripComments = (text) => text
   .replace(/\/\*[\s\S]*?\*\//g, '')
   .replace(/^[^\n]*?\/\/[^\n]*$/gm, '');
-const source = readFileSync(resolve(__dirname, '../PermissionsToaster.tsx'), 'utf8');
+// Components pass their copy through t('…') so it can be translated. The copy and
+// the markup around it did not move, only the call did, so unwrap it before
+// asserting on rendered text. Files that assert on the t('…') call itself read
+// the raw source through readRaw().
+const untranslate = (src) => src
+    .replace(/([\w-]+)=\{t\((['"])([\s\S]*?)\2\)\}/g, '$1="$3"')
+    .replace(/\{t\((['"])([\s\S]*?)\1\)\}/g, '$2');
+
+const source = untranslate(readFileSync(resolve(__dirname, '../PermissionsToaster.tsx'), 'utf8'));
 const rendered = stripComments(source);
 const modal = stripComments(readFileSync(resolve(__dirname, '../../ui/GenieModal.tsx'), 'utf8'));
 const snapshots = stripComments(readFileSync(resolve(__dirname, '../genieSnapshots.ts'), 'utf8'));
@@ -108,7 +116,7 @@ test('each platform is shown its own settings, never the other one\'s', () => {
   const mac = rendered.slice(rendered.indexOf('function GuideSteps('), rendered.indexOf('function GuideStepsWindows('));
   const win = rendered.slice(rendered.indexOf('function GuideStepsWindows('), rendered.indexOf('function MockGlassButton('));
   assert.ok(mac.length > 500 && win.length > 500);
-  assert.ok(mac.includes('System Settings → Privacy &amp; Security'));
+  assert.ok(mac.includes('System Settings → Privacy & Security'));
   assert.doesNotMatch(mac, /desktop app|windowsMicPage|page\.switches|page\.label/);
   // The names and the path are Windows's own, per release, from the policy:
   // nothing about the page is spelled out a second time in the component.

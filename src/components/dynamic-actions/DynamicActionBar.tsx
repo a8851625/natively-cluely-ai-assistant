@@ -9,6 +9,7 @@ import {
   type CardExitReason,
   type CardExits,
 } from './DynamicActionCard';
+import { useT } from '../../i18n';
 
 interface Props {
   // Called when the user accepts (the accept shortcut, or a click). Parent
@@ -64,6 +65,7 @@ export const DynamicActionBar: React.FC<Props> = ({
   shortcutEnabled = true,
   requestHeightMotion,
 }) => {
+  const t = useT();
   const [actions, setActions] = useState<DynamicActionPayload[]>([]);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
@@ -242,7 +244,7 @@ export const DynamicActionBar: React.FC<Props> = ({
     <div
       className="relative flex flex-col px-3 w-full"
       data-testid="dynamic-action-bar"
-      aria-label="Suggested actions"
+      aria-label={t('Suggested actions')}
     >
       <AnimatePresence
         initial={false}

@@ -2,6 +2,7 @@ import React from "react";
 import { motion } from "framer-motion";
 import nativelyLogo from "../assets/logo.webp";
 import { getModifierSymbol } from "../utils/platformUtils";
+import { useT } from '../i18n';
 
 const DARK_GLASS = {
   background: "linear-gradient(160deg, rgba(90,90,108,0.88) 0%, rgba(55,55,70,0.93) 50%, rgba(36,36,50,0.97) 100%)",
@@ -33,6 +34,7 @@ interface Props {
 }
 
 const NativelyInterfaceCard = ({ className = "", isMobile = false, isStatic = false, hidePill = false, hideMessages = false, dreamyVariant = false, spreadHotkeys = false }: Props) => {
+  const t = useT();
   const motionProps = isStatic
     ? {
       initial: { opacity: 0, y: 16 },
@@ -65,14 +67,14 @@ const NativelyInterfaceCard = ({ className = "", isMobile = false, isStatic = fa
             {/* Logo */}
             <div className="w-8 h-8 rounded-full flex items-center justify-center relative overflow-hidden" style={DARK_GLASS}>
               {GLOSS}
-              <img src={nativelyLogo} alt="Natively" className="w-[28px] h-[28px] object-contain relative" draggable={false} />
+              <img src={nativelyLogo} alt={t('Natively')} className="w-[28px] h-[28px] object-contain relative" draggable={false} />
             </div>
 
             {/* Hide */}
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-white/75 text-[12px] font-medium tracking-[0.02em] relative overflow-hidden" style={DARK_GLASS}>
               {GLOSS}
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="opacity-70 relative"><path d="M3 7.5L6 4.5L9 7.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
-              <span className="relative">Hide</span>
+              <span className="relative">{t('Hide')}</span>
             </div>
 
             {/* Stop */}
@@ -111,7 +113,7 @@ const NativelyInterfaceCard = ({ className = "", isMobile = false, isStatic = fa
               <div className="relative px-4 py-2 rounded-full text-white text-[13px] font-semibold shadow-[0_8px_20px_rgba(37,99,235,0.35)] border border-white/20"
                 style={{ background: "linear-gradient(160deg, #5B8EF0 0%, #3B6FE8 50%, #2D5FD4 100%)" }}>
                 <div className="absolute top-0.5 left-2 right-2 h-[45%] rounded-full bg-gradient-to-b from-white/70 to-white/5 blur-[0.5px] pointer-events-none" />
-                <span className="relative drop-shadow-sm">What should I answer?</span>
+                <span className="relative drop-shadow-sm">{t('What should I answer?')}</span>
               </div>
             </div>
           )}
@@ -120,7 +122,7 @@ const NativelyInterfaceCard = ({ className = "", isMobile = false, isStatic = fa
           {!hideMessages && (
             <div className="px-4 pb-2">
               <p className="text-white/90 text-[14px] leading-relaxed font-normal whitespace-pre-wrap">
-                Based on the project requirements and current timeline, I've outlined the critical path for the next sprint.
+                {t("Based on the project requirements and current timeline, I've outlined the critical path for the next sprint.")}
               </p>
             </div>
           )}
@@ -166,10 +168,10 @@ const NativelyInterfaceCard = ({ className = "", isMobile = false, isStatic = fa
               >
                 {dreamyVariant ? (
                   <span className="flex items-center gap-1.5">
-                    Ask about your screen or conversation, or
+                    {t('Ask about your screen or conversation, or')}
                     <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] border border-white/10 font-sans">{getModifierSymbol('cmd')}</kbd>
                     <kbd className="bg-white/10 px-1.5 py-0.5 rounded text-[10px] border border-white/10 font-sans">↵</kbd>
-                    for Assist
+                    {t('for Assist')}
                   </span>
                 ) : (
                   "Ask anything — Natively knows your resume and this company..."
@@ -191,7 +193,7 @@ const NativelyInterfaceCard = ({ className = "", isMobile = false, isStatic = fa
                   fontFamily: "var(--font-mono, monospace)"
                 }}
               >
-                Natively AI
+                {t('Natively AI')}
                 <svg width="8" height="8" viewBox="0 0 10 10" fill="none"><path d="M3 4l2 2 2-2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>
               </button>
               <button className="w-[26px] h-[26px] rounded-full flex items-center justify-center relative overflow-hidden border border-white/20"

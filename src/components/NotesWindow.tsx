@@ -14,6 +14,7 @@ import { noteTemplateById } from '../../electron/services/meeting/noteTemplates'
 import { answerSources, askContext, findInTranscript, listeningBarHeights, visibleRecipes, type AskTurn, type TranscriptHit, type TranscriptLine } from './notes/notepadView';
 import { TranscriptControls } from './notes/TranscriptControls';
 import { NpPop } from './notes/NpPop';
+import { useT } from '../i18n';
 
 /**
  * The notes window (`?window=notes`, 2026-10-15), laid out and working like
@@ -108,6 +109,7 @@ const EMPTY_INFO: HeadingInfo & { speakers: { me: string; them: string } } = {
 };
 
 const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) => {
+    const t = useT();
     const isLight = useResolvedTheme() === 'light';
     const [text, setText] = useState(preview?.text ?? '');
     const [phase, setPhase] = useState<Phase>(preview ? 'live' : 'idle');
@@ -834,13 +836,13 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
             </button>
             {paused && (
                 <button type="button" onClick={togglePause} className="h-full shrink-0 px-2 rounded-lg text-[13px] font-medium np-wash" style={ink('--np-accent')}>
-                    Resume
+                    {t('Resume')}
                 </button>
             )}
             <button
                 type="button"
-                aria-label="Stop transcript"
-                title="Stop transcript"
+                aria-label={t('Stop transcript')}
+                title={t('Stop transcript')}
                 onClick={() => { void window.electronAPI?.endMeeting?.(); }}
                 className="h-full shrink-0 flex items-center pl-[5.5px] pr-[13px] rounded-l-lg rounded-r-3xl transition-colors duration-75 np-wash"
                 style={ink('--np-stop')}
@@ -866,7 +868,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
     const askInput = (
         <input
             ref={askRef}
-            aria-label="Ask anything"
+            aria-label={t('Ask anything')}
             value={ask}
             onChange={(e) => setAsk(e.target.value)}
             onMouseDown={engage('ask')}
@@ -889,13 +891,13 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
             <div className={`${preview ? '' : 'drag-region '}h-11 shrink-0 flex items-center justify-end gap-1.5 pr-3`}>
                 <div className="relative flex items-center gap-1.5" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties} ref={menuRef}>
                     {phase !== 'ended' && (
-                        <button type="button" aria-label="More" aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)} className={iconBtn} style={ink('--np-ink-secondary')}>
+                        <button type="button" aria-label={t('More')} aria-expanded={menuOpen} onClick={() => setMenuOpen((o) => !o)} className={iconBtn} style={ink('--np-ink-secondary')}>
                             <MoreHorizontal className="w-4 h-4" strokeWidth={1.75} />
                         </button>
                     )}
                     <button
                         type="button"
-                        aria-label="Close"
+                        aria-label={t('Close')}
                         onClick={() => { void window.electronAPI?.notesWindowClose?.(); }}
                         className={iconBtn}
                         style={ink('--np-ink-secondary')}
@@ -904,7 +906,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                     </button>
                         <NpPop open={menuOpen && phase !== 'ended'} origin="top right" role="menu" className="absolute right-0 top-9 z-40 w-56 p-1">
                             <button type="button" role="menuitem" className={menuItem} style={ink('--np-ink')} onClick={() => { setMenuOpen(false); setFindOpen(true); }}>
-                                <Search className="w-4 h-4" strokeWidth={1.75} style={ink('--np-ink-secondary')} /> Find in notes
+                                <Search className="w-4 h-4" strokeWidth={1.75} style={ink('--np-ink-secondary')} /> {t('Find in notes')}
                             </button>
                             {phase === 'live' && (
                                 <>
@@ -961,7 +963,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                         <span className="text-[12px] font-medium leading-4" style={ink('--np-ink-secondary')}>{lastTime.recap.recap.title}</span>
                         <button
                             type="button"
-                            aria-label="Dismiss"
+                            aria-label={t('Dismiss')}
                             onClick={lastTime.dismiss}
                             className="-mt-1 -mr-1.5 w-6 h-6 shrink-0 rounded-full flex items-center justify-center np-wash"
                             style={ink('--np-ink-secondary')}
@@ -981,7 +983,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                 <div className="np-outline shrink-0 mx-7 mt-3 flex items-center gap-1 h-8 pl-3 pr-1 rounded-full">
                     <Search className="w-3.5 h-3.5 shrink-0" strokeWidth={1.75} style={ink('--np-ink-secondary')} />
                     <input
-                        aria-label="Find in notes"
+                        aria-label={t('Find in notes')}
                         autoFocus={!focusBlockedRef.current}
                         value={findQuery}
                         onChange={(e) => setFindQuery(e.target.value)}
@@ -991,14 +993,14 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                             if (e.key === 'Escape') { e.preventDefault(); setFindOpen(false); setFindQuery(''); }
                         }}
                         data-hook-typing={typingHere('find') ? 'true' : undefined}
-                        placeholder="Find"
+                        placeholder={t('Find')}
                         className="flex-1 min-w-0 bg-transparent text-[13px] outline-none placeholder:text-[color:var(--np-ink-tertiary)]"
                         style={ink('--np-ink')}
                     />
                     <span className="text-[11px] tabular-nums px-1" style={ink('--np-ink-secondary')}>{findQuery ? (findPos.count ? `${findPos.index + 1} of ${findPos.count}` : 'No results') : ''}</span>
-                    <button type="button" aria-label="Previous match" onClick={() => stepFind(true)} className={smallBtn} style={ink('--np-ink-secondary')}><ChevronUp className="w-3.5 h-3.5" strokeWidth={2} /></button>
-                    <button type="button" aria-label="Next match" onClick={() => stepFind(false)} className={smallBtn} style={ink('--np-ink-secondary')}><ChevronDown className="w-3.5 h-3.5" strokeWidth={2} /></button>
-                    <button type="button" aria-label="Close find" onClick={() => { setFindOpen(false); setFindQuery(''); }} className={smallBtn} style={ink('--np-ink-secondary')}><X className="w-3.5 h-3.5" strokeWidth={2} /></button>
+                    <button type="button" aria-label={t('Previous match')} onClick={() => stepFind(true)} className={smallBtn} style={ink('--np-ink-secondary')}><ChevronUp className="w-3.5 h-3.5" strokeWidth={2} /></button>
+                    <button type="button" aria-label={t('Next match')} onClick={() => stepFind(false)} className={smallBtn} style={ink('--np-ink-secondary')}><ChevronDown className="w-3.5 h-3.5" strokeWidth={2} /></button>
+                    <button type="button" aria-label={t('Close find')} onClick={() => { setFindOpen(false); setFindQuery(''); }} className={smallBtn} style={ink('--np-ink-secondary')}><X className="w-3.5 h-3.5" strokeWidth={2} /></button>
                 </div>
             )}
 
@@ -1012,11 +1014,11 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                         <div className="px-8 pt-3 -mb-1 flex items-center gap-2 min-w-0" role="status">
                             {liveTemplate && (
                                 <span className="np-outline h-7 inline-flex items-center gap-1.5 pl-2.5 pr-1 rounded-full text-[13px] font-[430] min-w-0" style={ink('--np-ink')}>
-                                    <button type="button" onClick={() => openGallery(liveTemplate.id)} className="inline-flex items-center gap-1.5 min-w-0" title="Change template">
+                                    <button type="button" onClick={() => openGallery(liveTemplate.id)} className="inline-flex items-center gap-1.5 min-w-0" title={t('Change template')}>
                                         <FileText className="w-3.5 h-3.5 shrink-0" strokeWidth={1.75} style={ink('--np-ink-secondary')} />
                                         <span className="truncate">{liveTemplate.name}</span>
                                     </button>
-                                    <button type="button" aria-label="Remove template" onClick={() => setLiveTemplate(null)} className="w-5 h-5 rounded-full flex items-center justify-center np-wash" style={ink('--np-ink-tertiary')}>
+                                    <button type="button" aria-label={t('Remove template')} onClick={() => setLiveTemplate(null)} className="w-5 h-5 rounded-full flex items-center justify-center np-wash" style={ink('--np-ink-tertiary')}>
                                         <X className="w-3 h-3" strokeWidth={2} />
                                     </button>
                                 </span>
@@ -1046,14 +1048,14 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                         {/* The meeting's status: the overlay is hidden in a notepad meeting. */}
                         {phase === 'live' && stopsAt !== null && (
                             <div className="np-elevated rounded-[20px] pl-4 pr-1.5 py-1.5 flex items-center justify-between gap-3" role="status">
-                                <p className="text-[13px] leading-[18px]" style={ink('--np-red')}>Natively stops in 1 minute because nothing has been said.</p>
+                                <p className="text-[13px] leading-[18px]" style={ink('--np-red')}>{t('Natively stops in 1 minute because nothing has been said.')}</p>
                                 <button
                                     type="button"
                                     onClick={() => { setStopsAt(null); window.electronAPI?.meetingAutoStopKeepGoing?.()?.catch?.(() => {}); }}
                                     className={chipBtn}
                                     style={ink('--np-ink')}
                                 >
-                                    Keep going
+                                    {t('Keep going')}
                                 </button>
                             </div>
                         )}
@@ -1064,7 +1066,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                         {/* After Stop: Granola's My notes / Enhanced switch, the thumb sliding between them. */}
                         {showTabs && (
                             <div className="flex justify-center">
-                                <div className="np-track relative h-8 p-0.5 rounded-full flex" role="tablist" aria-label="Notes">
+                                <div className="np-track relative h-8 p-0.5 rounded-full flex" role="tablist" aria-label={t('Notes')}>
                                     <span className="np-thumb absolute top-0.5 bottom-0.5 w-[104px] rounded-full" style={{ left: endedTab === 'mine' ? 2 : 106 }} aria-hidden />
                                     {(['mine', 'enhanced'] as const).map((tab) => (
                                         <button
@@ -1121,7 +1123,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                     {findTranscript ? (
                                                         <>
                                                             <input
-                                                                aria-label="Find in transcript"
+                                                                aria-label={t('Find in transcript')}
                                                                 value={search}
                                                                 autoFocus={!focusBlockedRef.current}
                                                                 onChange={(e) => { setSearch(e.target.value); setHitIndex(0); }}
@@ -1132,7 +1134,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                                     else if (e.key === 'Escape') { e.preventDefault(); closeTranscriptFind(); }
                                                                 }}
                                                                 data-hook-typing={typingHere('search') ? 'true' : undefined}
-                                                                placeholder="Find"
+                                                                placeholder={t('Find')}
                                                                 className="h-7 flex-1 min-w-0 bg-transparent pl-3 text-[13px] outline-none placeholder:text-[color:var(--np-ink-tertiary)] animate-[np-fade-in_100ms_ease-out]"
                                                                 style={ink('--np-ink')}
                                                             />
@@ -1141,13 +1143,13 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                                     {hits.length ? `${currentHit + 1}/${hits.length}` : 'No results'}
                                                                 </span>
                                                             )}
-                                                            <button type="button" aria-label="Previous match" onClick={() => stepHit(-1)} disabled={!hits.length} className={`${smallBtn} disabled:opacity-40`} style={ink('--np-ink-secondary')}><ChevronUp className="w-3.5 h-3.5" strokeWidth={2} /></button>
-                                                            <button type="button" aria-label="Next match" onClick={() => stepHit(1)} disabled={!hits.length} className={`${smallBtn} disabled:opacity-40`} style={ink('--np-ink-secondary')}><ChevronDown className="w-3.5 h-3.5" strokeWidth={2} /></button>
+                                                            <button type="button" aria-label={t('Previous match')} onClick={() => stepHit(-1)} disabled={!hits.length} className={`${smallBtn} disabled:opacity-40`} style={ink('--np-ink-secondary')}><ChevronUp className="w-3.5 h-3.5" strokeWidth={2} /></button>
+                                                            <button type="button" aria-label={t('Next match')} onClick={() => stepHit(1)} disabled={!hits.length} className={`${smallBtn} disabled:opacity-40`} style={ink('--np-ink-secondary')}><ChevronDown className="w-3.5 h-3.5" strokeWidth={2} /></button>
                                                             <span className="ml-1 h-3 w-px shrink-0" style={{ background: 'var(--np-hairline)' }} aria-hidden />
-                                                            <button type="button" aria-label="Close find" onClick={closeTranscriptFind} className={`${smallBtn} mr-1`} style={ink('--np-ink-secondary')}><X className="w-3.5 h-3.5" strokeWidth={2} /></button>
+                                                            <button type="button" aria-label={t('Close find')} onClick={closeTranscriptFind} className={`${smallBtn} mr-1`} style={ink('--np-ink-secondary')}><X className="w-3.5 h-3.5" strokeWidth={2} /></button>
                                                         </>
                                                     ) : (
-                                                        <button type="button" aria-label="Find in transcript" title="Find in transcript" onClick={() => setFindTranscript(true)} className={iconBtn} style={ink('--np-ink-secondary')}>
+                                                        <button type="button" aria-label={t('Find in transcript')} title={t('Find in transcript')} onClick={() => setFindTranscript(true)} className={iconBtn} style={ink('--np-ink-secondary')}>
                                                             <Search className="w-4 h-4" strokeWidth={1.75} />
                                                         </button>
                                                     )}
@@ -1155,7 +1157,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                 <span className="flex-1" />
                                                 <button
                                                     type="button"
-                                                    aria-label="Copy the transcript"
+                                                    aria-label={t('Copy the transcript')}
                                                     title={copiedKey === 'transcript' ? 'Copied' : 'Copy transcript'}
                                                     disabled={lines.length === 0}
                                                     onClick={() => { void copyText('transcript', lines.map((l) => `${speakerName(l.speaker)}: ${l.text}`).join('\n')); }}
@@ -1164,7 +1166,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                 >
                                                     {copiedKey === 'transcript' ? <Check className="w-4 h-4" strokeWidth={1.75} /> : <Copy className="w-4 h-4" strokeWidth={1.75} />}
                                                 </button>
-                                                <button type="button" aria-label="Close transcript" onClick={() => setShowTranscript(false)} className={iconBtn} style={ink('--np-ink-secondary')}>
+                                                <button type="button" aria-label={t('Close transcript')} onClick={() => setShowTranscript(false)} className={iconBtn} style={ink('--np-ink-secondary')}>
                                                     <Minus className="w-4 h-4" strokeWidth={1.75} />
                                                 </button>
                                             </div>
@@ -1200,7 +1202,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                 {!atBottom && (
                                                     <button
                                                         type="button"
-                                                        aria-label="Jump to the latest"
+                                                        aria-label={t('Jump to the latest')}
                                                         onClick={() => { const el = transcriptRef.current; if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' }); setHighlightAt(null); }}
                                                         className="np-jump np-arrive absolute bottom-4 left-1/2 -ml-6 grid h-8 w-12 place-items-center rounded-full"
                                                         style={ink('--np-ink')}
@@ -1213,7 +1215,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                     ) : contentKind === 'ask' && turns.length > 0 ? (
                                         <div className="h-full flex flex-col">
                                             <div className="shrink-0 h-12 flex items-center justify-end px-3">
-                                                <button type="button" aria-label="New chat" title="New chat" onClick={() => setTurns([])} className={iconBtn} style={ink('--np-ink-secondary')}>
+                                                <button type="button" aria-label={t('New chat')} title={t('New chat')} onClick={() => setTurns([])} className={iconBtn} style={ink('--np-ink-secondary')}>
                                                     <SquarePen className="w-4 h-4" strokeWidth={1.75} />
                                                 </button>
                                             </div>
@@ -1232,19 +1234,19 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                             </div>
                                                             {turn.status === 'error' ? (
                                                                 <div className="mt-3 flex items-start justify-between gap-3">
-                                                                    <p className="text-[14px] leading-[1.58]" style={ink('--np-ink-secondary')}>Couldn&rsquo;t get an answer. Check your AI provider in Settings, then ask again.</p>
-                                                                    <button type="button" onClick={() => retry(i)} className={chipBtn} style={ink('--np-ink-secondary')}><RotateCcw className="w-3 h-3" strokeWidth={2} /> Retry</button>
+                                                                    <p className="text-[14px] leading-[1.58]" style={ink('--np-ink-secondary')}>{t('Couldn’t get an answer. Check your AI provider in Settings, then ask again.')}</p>
+                                                                    <button type="button" onClick={() => retry(i)} className={chipBtn} style={ink('--np-ink-secondary')}><RotateCcw className="w-3 h-3" strokeWidth={2} /> {t('Retry')}</button>
                                                                 </div>
                                                             ) : turn.text ? (
                                                                 <p className="mt-3 text-[14px] leading-[1.58] whitespace-pre-wrap" style={ink('--np-ink')}>{plainAnswerText(turn.text)}</p>
                                                             ) : (
                                                                 <p className="mt-3 text-[14px] leading-[1.58] inline-flex items-center gap-2" style={ink('--np-ink-tertiary')}>
-                                                                    Thinking <span className="np-dots inline-flex items-center gap-[3px]" aria-hidden><span /><span /><span /></span>
+                                                                    {t('Thinking')} <span className="np-dots inline-flex items-center gap-[3px]" aria-hidden><span /><span /><span /></span>
                                                                 </p>
                                                             )}
                                                             {turn.status === 'done' && sources.length > 0 && (
                                                                 <div className="mt-2">
-                                                                    <p className="text-[12px] font-medium" style={ink('--np-ink-secondary')}>In the transcript</p>
+                                                                    <p className="text-[12px] font-medium" style={ink('--np-ink-secondary')}>{t('In the transcript')}</p>
                                                                     <ul className="mt-1 space-y-0.5">
                                                                         {sources.map((s) => (
                                                                             <li key={s.at}>
@@ -1265,7 +1267,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                                 <div className="mt-2 flex items-center gap-1.5">
                                                                     {i === turns.length - 1 && (
                                                                         <button type="button" disabled={busy} onClick={() => submitAsk('Say more about that.')} className={chipBtn} style={ink('--np-ink')}>
-                                                                            Say more
+                                                                            {t('Say more')}
                                                                         </button>
                                                                     )}
                                                                     <button type="button" onClick={() => { void copyText(`turn-${i}`, plainAnswerText(turn.text)); }} className={chipBtn} style={ink('--np-ink-secondary')}>
@@ -1280,7 +1282,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                         </div>
                                     ) : contentKind === 'ask' ? (
                                         /* Granola's recipe row: two recipes, All recipes at the end, 24px chips of 12px. */
-                                        <div className="relative px-4 pt-[7px] pb-[3px] flex items-center gap-0.5" aria-label="Recipes">
+                                        <div className="relative px-4 pt-[7px] pb-[3px] flex items-center gap-0.5" aria-label={t('Recipes')}>
                                             {visibleRecipes(SUGGESTIONS, false).map(recipeButton)}
                                             <button
                                                 type="button"
@@ -1291,13 +1293,13 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                 className={`${recipeChip} ml-auto`}
                                                 style={ink(allRecipes ? '--np-ink' : '--np-ink-secondary')}
                                             >
-                                                <LayoutGrid className="w-4 h-4" strokeWidth={1.75} /> All recipes
+                                                <LayoutGrid className="w-4 h-4" strokeWidth={1.75} /> {t('All recipes')}
                                             </button>
                                         </div>
                                     ) : null}
                                 </motion.div>
                                 {/* All recipes: a menu opening upward from its chip, outside the clipped content. */}
-                                <NpPop open={askOpen && allRecipes && turns.length === 0} origin="bottom right" role="menu" aria-label="All recipes" className="absolute right-4 bottom-[102px] z-40 w-[240px] p-1">
+                                <NpPop open={askOpen && allRecipes && turns.length === 0} origin="bottom right" role="menu" aria-label={t('All recipes')} className="absolute right-4 bottom-[102px] z-40 w-[240px] p-1">
                                     {visibleRecipes(SUGGESTIONS, true).map((r) => (
                                         <button
                                             key={r.label}
@@ -1336,7 +1338,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                 {askOpen && (
                                                     <button
                                                         type="button"
-                                                        aria-label="Attach image"
+                                                        aria-label={t('Attach image')}
                                                         title={attached > 0 ? `Attach image (${attached} added)` : 'Attach image'}
                                                         disabled={!!working}
                                                         onMouseDown={(e) => e.preventDefault()}
@@ -1354,10 +1356,10 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                             </div>
                         )}
                         {phase === 'live' && showTranscript && (
-                            <p className="-mt-1 text-center text-[11px] leading-4" style={ink('--np-ink-tertiary')}>Natively uses AI and can make mistakes.</p>
+                            <p className="-mt-1 text-center text-[11px] leading-4" style={ink('--np-ink-tertiary')}>{t('Natively uses AI and can make mistakes.')}</p>
                         )}
                         {phase === 'live' && paused && !showTranscript && !askOpen && (
-                            <p className="-mt-1 text-center text-[12px] leading-4" style={ink('--np-ink-secondary')}>Transcription paused</p>
+                            <p className="-mt-1 text-center text-[12px] leading-4" style={ink('--np-ink-secondary')}>{t('Transcription paused')}</p>
                         )}
                     </div>
                 </div>
@@ -1390,6 +1392,7 @@ const TranscriptBubble: React.FC<{
     copied?: boolean;
     onCopy?: () => void;
 }> = ({ line, name, runStart, highlighted, partial, hits, copied, onCopy }) => {
+    const t = useT();
     const mine = line.speaker === 'user';
     return (
         <div data-at={line.at} className={`group flex flex-col ${mine ? 'items-end pl-16' : 'items-start pr-16'} ${runStart ? 'mt-3 first:mt-1' : 'mt-1'}`}>
@@ -1409,7 +1412,7 @@ const TranscriptBubble: React.FC<{
                 {onCopy && (
                     <button
                         type="button"
-                        aria-label="Copy this line"
+                        aria-label={t('Copy this line')}
                         onClick={onCopy}
                         className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity np-wash"
                         style={ink('--np-ink-secondary')}

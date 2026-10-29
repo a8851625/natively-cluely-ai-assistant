@@ -12,6 +12,7 @@ import {
   useSettingsTones,
 } from '../SettingsRow';
 import { copyText } from '../../../lib/copyText';
+import { useT } from '../../../i18n';
 
 // The pieces Setup & Help is written in. Every row is the shared SettingsRow —
 // General, Audio, Sync, Intelligence and About are built from the same one —
@@ -154,7 +155,8 @@ const KEY_GLYPHS: Record<string, string> = { ArrowUp: '↑', ArrowDown: '↓', A
  * in running text, so they drop to 20px to stay inside the 12px line.
  */
 export const HelpKeys: React.FC<{ keys: string[]; inline?: boolean }> = ({ keys, inline }) => {
-  if (keys.length === 0) return <span className="text-xs text-text-secondary">Not set</span>;
+  const t = useT();
+  if (keys.length === 0) return <span className="text-xs text-text-secondary">{t('Not set')}</span>;
   return (
     <span className={`${inline ? 'inline-flex align-middle mx-0.5' : 'flex'} items-center gap-1`}>
       {keys.map((k, i) => (
@@ -295,6 +297,7 @@ export const HelpClip: React.FC<{
   label: string;
   caption?: string;
 }> = ({ clip, label, caption }) => {
+  const t = useT();
   const reduce = usePrefersReducedMotion();
   const isLight = useResolvedTheme() === 'light';
   const guideOpen = React.useContext(HelpGuideOpen);
@@ -430,7 +433,7 @@ export const HelpClip: React.FC<{
         <ol
           className="grid gap-3"
           style={{ gridTemplateColumns: `repeat(${chapters.length}, minmax(0, 1fr))` }}
-          aria-label="Steps in this recording"
+          aria-label={t('Steps in this recording')}
         >
           {chapters.map((chapter, i) => {
             const isActive = i === active;

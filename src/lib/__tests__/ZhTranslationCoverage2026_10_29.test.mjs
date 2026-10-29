@@ -37,6 +37,7 @@ function loadDict(relPath) {
 const ZH = {
     ...loadDict('src/i18n.zh.generated.ts'),
     ...loadDict('src/i18n.zh.generated2.ts'),
+    ...loadDict('src/i18n.zh.generated3.ts'),
 };
 
 // ── Call-site extraction ────────────────────────────────────────────────────
@@ -88,20 +89,21 @@ function collectCallSites() {
 // protocol names, plan names and pure punctuation — translating any of these
 // would be wrong, so they are exempt from the coverage assertion rather than
 // carrying a fake identity translation that looks translated but is not.
+// Product names, vendor names, OS names, URLs, a shell snippet, and the
+// `label=` props the dev harnesses use as test ids. All of these read the same
+// in every language, so leaving them to fall back to English is correct.
 const BRAND_ONLY = new Set([
-    'AI',
-    'Anthropic',
-    'Base URL',
-    'Beta',
-    'CRM',
-    'Custom cURL',
-    'GitHub',
-    'LinkedIn',
-    'MCP',
-    'Natively API',
-    'OpenAI',
-    'Pro',
-    'Telegram',
+    '1Password', '9Router', 'AI', 'Anthropic', 'Apple Silicon', 'Base URL', 'Beta',
+    'BrowserExtensionToaster', 'CRM', 'Chrome Web Store', 'Custom cURL', 'Evin John',
+    'FreeTrialModal', 'Gemini 3 Flash', 'GitHub', 'Gmail', 'Google Antigravity',
+    'Google Chrome', 'HindsightStatusBanner', 'LinkedIn', 'LiteLLM Proxy', 'MCP',
+    'ManagerPanel', 'MeetingOfferToast', 'Natively', 'Natively AI', 'Natively API',
+    'Natively Companion', 'NativelyQuotaBanner', 'OpenAI', 'OpenAI Codex', 'PlansToaster',
+    'PermissionsToaster', 'Pro', 'ReviewModal', 'SettingsOverlay', 'Slack', 'SupportToaster',
+    'Telegram', 'TrialMeterToaster', 'UpdateCornerToast', 'UpdateModal', 'Windows', 'Zoom',
+    'app.tavily.com', 'hindsight.vectorize.io', 'ollama.com',
+    'curl http://localhost:11434/api/generate -d \'',
+    '~/Documents/natively_debug.log',
     '…',
 ]);
 
@@ -126,7 +128,7 @@ test('every t() literal in src has a Chinese translation', () => {
     assert.deepEqual(
         missing,
         [],
-        `Untranslated t() strings — add them to src/i18n.zh.generated2.ts:\n  ${missing.join('\n  ')}`,
+        `Untranslated t() strings — add them to src/i18n.zh.generated2.ts (or generated3.ts):\n  ${missing.join('\n  ')}`,
     );
     assert.deepEqual(
         stillEnglish,

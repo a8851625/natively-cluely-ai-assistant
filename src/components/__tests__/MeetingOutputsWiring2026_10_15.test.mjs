@@ -12,7 +12,16 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
-const read = (p) => readFileSync(resolve(ROOT, p), 'utf8');
+// Components pass their copy through t('…') so it can be translated. The copy and
+// the markup around it did not move, only the call did, so unwrap it before
+// asserting on rendered text. Files that assert on the t('…') call itself read
+// the raw source through readRaw().
+const untranslate = (src) => src
+    .replace(/([\w-]+)=\{t\((['"])([\s\S]*?)\2\)\}/g, '$1="$3"')
+    .replace(/\{t\((['"])([\s\S]*?)\1\)\}/g, '$2');
+
+const readRaw = (p) => readFileSync(resolve(ROOT, p), 'utf8');
+const read = (p) => untranslate(readRaw(p));
 
 test('Settings: connections sits between audio and help in SETTINGS_NAV_ORDER, with a nav button and a panel', () => {
     const src = read('src/components/SettingsOverlay.tsx');
@@ -145,9 +154,10 @@ test("Connectors: built from Settings' own cards and rows, no display serif", ()
 
 test("Connectors: the Gmail page keeps Granola's sections (account card, Includes, How Gmail is used)", () => {
     const gmail = read('src/components/settings/connectors/GmailPanel.tsx');
+    const gmailRaw = readRaw('src/components/settings/connectors/GmailPanel.tsx');
     const pane = read('src/components/settings/ConnectionsSettings.tsx');
-    assert.match(gmail, /<DisconnectButton confirmLabel=\{t\('Disconnect Gmail\?'\)\}/);
-    assert.match(gmail, /<ConnectPill label=\{t\('Connect Gmail'\)\} external/);
+    assert.match(gmailRaw, /<DisconnectButton confirmLabel=\{t\('Disconnect Gmail\?'\)\}/);
+    assert.match(gmailRaw, /<ConnectPill label=\{t\('Connect Gmail'\)\} external/);
     assert.equal((gmail.match(/<FeatureCard\b/g) || []).length, 2);
     // Includes is read, not worked in: its lines sit on the page, no card, no 40px tiles.
     assert.match(gmail, /<PlainSection title="Includes">/);
@@ -163,6 +173,7 @@ test('Connectors: every page opens on the same heading and account card', () => 
     const parts = read('src/components/settings/connectors/parts.tsx');
     const css = read('src/index.css');
     const pane = read('src/components/settings/ConnectionsSettings.tsx');
+    const paneRaw = readRaw('src/components/settings/ConnectionsSettings.tsx');
     const hooks = read('src/components/settings/connectors/WebhooksPanel.tsx');
     // The connector's name and line as the section heading, then a card whose row is the connection: mark, dot, words, pills.
     assert.match(parts, /export const ActionArea/);
@@ -184,7 +195,7 @@ test('Connectors: every page opens on the same heading and account card', () => 
     // Token services and Slack sit on it; Connect says the service's name, with the browser arrow when it signs in there.
     assert.match(pane, /<ConnectPill label=\{t\(`Connect \$\{meta\.title\}`\)\} external/);
     assert.match(pane, /confirmLabel=\{t\(`Disconnect \$\{meta\.title\}\?`\)\}/);
-    assert.match(pane, /<ConnectPill label=\{t\('Connect Slack'\)\} external/);
+    assert.match(paneRaw, /<ConnectPill label=\{t\('Connect Slack'\)\} external/);
     assert.match(pane, /<DetailSection title="Where pages go">/);
     // Zapier and Webhooks add from the row; Zapier also opens Zapier's editor in the browser.
     assert.match(hooks, /<ConnectPill\s+label=\{zapier \? t\('Add a Zap'\) : t\('Add webhook'\)\}/);
@@ -195,8 +206,9 @@ test('Connectors: every page opens on the same heading and account card', () => 
 
 test('Connectors: Salesforce, HubSpot and Pipedrive always offer the pasted token beside browser sign-in', () => {
     const pane = read('src/components/settings/ConnectionsSettings.tsx');
+    const paneRaw = readRaw('src/components/settings/ConnectionsSettings.tsx');
     assert.match(pane, /TOKEN_ALWAYS_OFFERED: ReadonlySet<string> = new Set\(\['salesforce', 'hubspot', 'pipedrive'\]\)/);
     // A clear "Paste a token" pill opens the token form: always for these three, after a failed sign-in for the rest.
     assert.match(pane, /const offerToken = useBrowser && !open && \(TOKEN_ALWAYS_OFFERED\.has\(service\) \|\| signIn\.failed\);/);
-    assert.match(pane, /\) : offerToken \? \(\s*<GlassPill onClick=\{\(\) => \{ signIn\.clearFlash\(\); setOpen\(true\); \}\}[^\n]*>\s*\{t\('Paste a token'\)\}\s*<\/GlassPill>/);
+    assert.match(paneRaw, /\) : offerToken \? \(\s*<GlassPill onClick=\{\(\) => \{ signIn\.clearFlash\(\); setOpen\(true\); \}\}[^\n]*>\s*\{t\('Paste a token'\)\}\s*<\/GlassPill>/);
 });

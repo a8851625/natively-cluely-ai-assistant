@@ -16,6 +16,7 @@ import { GenieModal } from './ui/GenieModal';
 import { AlertTriangle, ExternalLink, X } from 'lucide-react';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
 import '../ui-components/LiquidGlassButton.css';
+import { useT } from '../i18n';
 
 type HindsightStatus =
   | { state: 'spawning'; reason?: string; logPath?: string }
@@ -40,6 +41,7 @@ function hashOf(text: string): string {
 }
 
 export const HindsightStatusBanner: React.FC<{ variant?: 'top-strip' | 'floating-card' }> = ({ variant = 'top-strip' }) => {
+  const t = useT();
   const [status, setStatus] = useState<HindsightStatus | null>(null);
   // Per-session dismissal — once the user clicks X the banner stays hidden until a NEW
   // failure occurs (state goes null → failure again). Avoids re-showing the same nudge
@@ -145,7 +147,7 @@ export const HindsightStatusBanner: React.FC<{ variant?: 'top-strip' | 'floating
                 <button
                   type="button"
                   onClick={() => setDismissed(true)}
-                  aria-label="Dismiss"
+                  aria-label={t('Dismiss')}
                   style={{
                     flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer',
                     width: 26, height: 26, display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -188,7 +190,7 @@ export const HindsightStatusBanner: React.FC<{ variant?: 'top-strip' | 'floating
                       e.currentTarget.style.color = 'var(--text-secondary)';
                     }}
                   >
-                    View log
+                    {t('View log')}
                   </button>
                 </div>
               ) : null}
@@ -237,13 +239,13 @@ export const HindsightStatusBanner: React.FC<{ variant?: 'top-strip' | 'floating
           title={status.logPath}
         >
           <ExternalLink size={11} />
-          View log
+          {t('View log')}
         </button>
       ) : null}
       <button
         type="button"
         onClick={() => setDismissed(true)}
-        aria-label="Dismiss"
+        aria-label={t('Dismiss')}
         className="inline-flex shrink-0 items-center rounded-md p-1 text-text-tertiary transition-colors hover:text-text-primary"
       >
         <X size={12} />

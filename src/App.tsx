@@ -53,6 +53,7 @@ import { useResolvedTheme } from "./hooks/useResolvedTheme"
 import { useDiagramRenderHost } from "./lib/diagram/diagramRuntime"
 import { WelcomeFlow } from "./components/onboarding/WelcomeFlow"
 import { shouldShowWelcome, hasOnboardingHistory, WELCOME_SEEN_KEY, LEGACY_PERMS_SHOWN_KEY, ONBOARDING_STATE_KEY } from "./lib/onboarding/welcomeGate.mjs"
+import { useT } from './i18n';
 
 // How often the launcher may re-read the card inputs when it regains focus
 // (main caches /usage for 60 s; toaster policy §6 row 18).
@@ -115,6 +116,7 @@ function getLauncherIsolation(): LauncherIsolation {
 }
 
 const App: React.FC = () => {
+  const t = useT();
   const isLight = useResolvedTheme() === 'light';
   // The launcher and the overlay both mount App, and both can be asked by the
   // main process to draw a diagram for the Phone Mirror (it has no DOM).

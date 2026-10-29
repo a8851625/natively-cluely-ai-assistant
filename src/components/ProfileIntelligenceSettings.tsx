@@ -17,6 +17,7 @@ import { CHECKOUT_URLS } from '../config/urls';
 import { useConfirmDialog } from './ui/ConfirmDialog';
 import { OwnAnswersSection } from './OwnAnswersSection';
 import { copyText } from '../lib/copyText';
+import { translate, useT } from '../i18n';
 
 const openExternal = (url: string) => {
     if ((window as any).electronAPI?.openExternal) {
@@ -1365,7 +1366,7 @@ const FileUploadEmpty = ({ hint, hasAccess, onBrowse, onNeedUpgrade, enterClass 
             className="pi-upload-btn"
             onClick={() => { if (!hasAccess) { onNeedUpgrade(); return; } onBrowse(); }}
         >
-            <Paperclip size={13} /> Upload file
+            <Paperclip size={13} /> {translate('Upload file')}
         </button>
     </div>
 );
@@ -1802,6 +1803,7 @@ function ProfileIntelligenceProGate({ onOpenNativelyAPI, onClose }: {
     onOpenNativelyAPI?: () => void;
     onClose?: () => void;
 }) {
+    const t = useT();
     const theme = useResolvedTheme();
     // Funnel: someone without Pro opened Profile Intelligence and met this gate.
     useEffect(() => {
@@ -1842,13 +1844,13 @@ function ProfileIntelligenceProGate({ onOpenNativelyAPI, onClose }: {
                         letterSpacing: '-0.04em', lineHeight: 1.1,
                         color: 'var(--pig-hero)',
                     }}>
-                        Every answer.<br/>Grounded in you.
+                        {t('Every answer.')}<br/>{t('Grounded in you.')}
                     </h1>
                     <p className="pig-sub" style={{
                         margin: 0, fontSize: 15, lineHeight: 1.4, fontWeight: 400,
                         color: 'var(--pig-sub)', letterSpacing: '-0.01em',
                     }}>
-                        Six intelligence layers turn your background into evidence-backed, personalized answers. Designed for professionals.
+                        {t('Six intelligence layers turn your background into evidence-backed, personalized answers. Designed for professionals.')}
                     </p>
                 </div>
 
@@ -1965,19 +1967,19 @@ function ProfileIntelligenceProGate({ onOpenNativelyAPI, onClose }: {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
                     {onOpenNativelyAPI && (
                         <button className="pig-text-btn" onClick={onOpenNativelyAPI}>
-                            I have a license <ChevronRight size={12} />
+                            {t('I have a license')} <ChevronRight size={12} />
                         </button>
                     )}
                 </div>
 
                 <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--pig-sub-low)', letterSpacing: '-0.01em', lineHeight: 1.4 }}>
-                    Currently your answers carry no personal context.<br/>
-                    <span style={{ color: '#fbbf24' }}>Unlock Pro to ground every answer in your identity, experience, and research.</span>
+                    {t('Currently your answers carry no personal context.')}<br/>
+                    <span style={{ color: '#fbbf24' }}>{t('Unlock Pro to ground every answer in your identity, experience, and research.')}</span>
                 </div>
 
                 <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                     <button className="pig-cta-group" onClick={() => openExternal(CHECKOUT_URLS.apiMax)}>
-                        Unlock Pro
+                        {t('Unlock Pro')}
                         <div className="pig-cta-icon-ring">
                             <ArrowUpRight size={14} strokeWidth={2.5} />
                         </div>
@@ -2003,6 +2005,7 @@ export function ProfileIntelligenceSettings({
     isTrialActive?: boolean;
     onOpenNativelyAPI?: () => void;
 }) {
+    const t = useT();
     const cachedPremium = readPremiumCache();
     // In-window confirms only: see ConfirmDialog.tsx for why never confirm().
     const { confirm: askConfirm, dialog: confirmDialog } = useConfirmDialog();
@@ -2506,7 +2509,7 @@ export function ProfileIntelligenceSettings({
                 style={{ marginBottom: 20 }}
             >
                 <div>
-                    <h3 className="pi-section-label" style={{ margin: 0 }}>Persona Engine</h3>
+                    <h3 className="pi-section-label" style={{ margin: 0 }}>{t('Persona Engine')}</h3>
                     <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: '4px 0 0' }}>
                         {profileStatus.profileMode
                             ? 'Answers rewired around your profile, the role, and your voice.'
@@ -2519,7 +2522,7 @@ export function ProfileIntelligenceSettings({
                     data-on={String(!!(profileStatus.profileMode && hasProfileAccess))}
                     aria-checked={!!(profileStatus.profileMode && hasProfileAccess)}
                     aria-disabled={(!profileStatus.hasProfile || !hasProfileAccess) ? true : undefined}
-                    aria-label="Persona Engine"
+                    aria-label={t('Persona Engine')}
                     onClick={async () => {
                         if (!profileStatus.hasProfile || !hasProfileAccess) return;
                         const newState = !profileStatus.profileMode;
@@ -2550,9 +2553,9 @@ export function ProfileIntelligenceSettings({
                 column is wide enough that one sentence never wraps, so the header
                 block stays a tight two-line unit above the card. */}
             <div style={{ marginBottom: 10 }}>
-                <h3 className="pi-section-label" style={{ margin: 0 }}>Resume</h3>
+                <h3 className="pi-section-label" style={{ margin: 0 }}>{t('Resume')}</h3>
                 <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: '4px 0 0', lineHeight: 1.5 }}>
-                    Grounds every answer in what you've actually done, instead of generic advice.
+                    {t("Grounds every answer in what you've actually done, instead of generic advice.")}
                 </p>
             </div>
             {profileIndexing || profileHandoff.settling ? (
@@ -2626,7 +2629,7 @@ export function ProfileIntelligenceSettings({
                                     )}
                                     {profileStatus.totalExperienceYears != null && profileStatus.totalExperienceYears > 0 && (
                                         <span style={{ fontSize: 11, color: 'var(--pi-tertiary)' }}>
-                                            {profileStatus.totalExperienceYears}y exp
+                                            {profileStatus.totalExperienceYears}{t('y exp')}
                                         </span>
                                     )}
                                 </div>
@@ -2662,9 +2665,9 @@ export function ProfileIntelligenceSettings({
                 keys off this JD's extracted company name, so the descriptor names
                 that downstream payoff rather than restating the upload CTA. */}
             <div style={{ marginBottom: 10 }}>
-                <h3 className="pi-section-label" style={{ margin: 0 }}>Job Description</h3>
+                <h3 className="pi-section-label" style={{ margin: 0 }}>{t('Job Description')}</h3>
                 <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: '4px 0 0', lineHeight: 1.5 }}>
-                    Frames answers around what this specific role asks for, and powers Company Intel.
+                    {t('Frames answers around what this specific role asks for, and powers Company Intel.')}
                 </p>
             </div>
             {jdIndexing || jdHandoff.settling ? (
@@ -2720,7 +2723,7 @@ export function ProfileIntelligenceSettings({
                             <div style={{ padding: '10px 12px', border: '1px solid var(--pi-border)', borderRadius: 'var(--pi-r-md)', background: 'rgba(255,255,255,0.015)', display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                                     {jd.min_years_experience > 0 && (
-                                        <span style={{ fontSize: 11, color: 'var(--pi-tertiary)' }}>{jd.min_years_experience}+ yrs</span>
+                                        <span style={{ fontSize: 11, color: 'var(--pi-tertiary)' }}>{jd.min_years_experience}{t('+ yrs')}</span>
                                     )}
                                     {jd.location && (
                                         <span style={{ fontSize: 11, color: 'var(--pi-tertiary)', display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -2778,11 +2781,11 @@ export function ProfileIntelligenceSettings({
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: 7, marginTop: 2 }}>
                 <Info size={12} style={{ color: 'var(--pi-tertiary)', flexShrink: 0, marginTop: 1 }} />
                 <p style={{ fontSize: 11, color: 'var(--pi-tertiary)', margin: 0, lineHeight: 1.5 }}>
-                    Used only in{' '}
-                    <span style={{ color: 'var(--pi-secondary)', fontWeight: 500 }}>Looking for work</span>{' '}
-                    and{' '}
-                    <span style={{ color: 'var(--pi-secondary)', fontWeight: 500 }}>Technical Interview</span>{' '}
-                    modes. Other modes never receive them.
+                    {t('Used only in')}{' '}
+                    <span style={{ color: 'var(--pi-secondary)', fontWeight: 500 }}>{t('Looking for work')}</span>{' '}
+                    {t('and')}{' '}
+                    <span style={{ color: 'var(--pi-secondary)', fontWeight: 500 }}>{t('Technical Interview')}</span>{' '}
+                    {t('modes. Other modes never receive them.')}
                 </p>
             </div>
 
@@ -2875,9 +2878,9 @@ export function ProfileIntelligenceSettings({
             <>
                 {/* Header */}
                 <div className="pi-list-item" style={{ marginBottom: 24 }}>
-                    <h3 className="pi-section-label" style={{ margin: 0 }}>Your profile</h3>
+                    <h3 className="pi-section-label" style={{ margin: 0 }}>{t('Your profile')}</h3>
                     <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: '4px 0 0', lineHeight: 1.5 }}>
-                        Pulled from your resume. This is what I'll draw on to help you answer questions during interviews.
+                        {t("Pulled from your resume. This is what I'll draw on to help you answer questions during interviews.")}
                     </p>
                 </div>
 
@@ -2890,9 +2893,9 @@ export function ProfileIntelligenceSettings({
                             <FileText size={18} style={{ color: 'var(--pi-accent-icon)' }} />
                         </div>
                         <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>No resume yet</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>{t('No resume yet')}</div>
                             <div style={{ fontSize: 12, color: 'var(--pi-secondary)', lineHeight: 1.6, maxWidth: 260 }}>
-                                Add your resume in <strong style={{ color: 'var(--pi-primary)' }}>Identity</strong> and I'll summarize it here.
+                                {t('Add your resume in')} <strong style={{ color: 'var(--pi-primary)' }}>{t('Identity')}</strong> {t("and I'll summarize it here.")}
                             </div>
                         </div>
                     </div>
@@ -2908,8 +2911,8 @@ export function ProfileIntelligenceSettings({
                 {profileStatus.extractionMode === 'heuristic' && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 24, padding: '10px 12px', borderRadius: 'var(--pi-r-md)', border: '1px solid rgba(245,158,11,0.20)', background: 'rgba(245,158,11,0.06)' }}>
                         <Info size={14} style={{ color: '#f59e0b', flexShrink: 0 }} />
-                        <span style={{ fontSize: 12, color: 'var(--pi-secondary)', lineHeight: 1.5, flex: 1 }}>Read without AI, so some details may be missing.</span>
-                        <button className="pi-pill-btn pi-press" style={{ flexShrink: 0 }} onClick={browseResume}><RefreshCw size={12} /> Re-upload</button>
+                        <span style={{ fontSize: 12, color: 'var(--pi-secondary)', lineHeight: 1.5, flex: 1 }}>{t('Read without AI, so some details may be missing.')}</span>
+                        <button className="pi-pill-btn pi-press" style={{ flexShrink: 0 }} onClick={browseResume}><RefreshCw size={12} /> {t('Re-upload')}</button>
                     </div>
                 )}
 
@@ -2938,7 +2941,7 @@ export function ProfileIntelligenceSettings({
                     <div className="pi-section-card">
                         <div className="pi-section-header">
                             <span className="pi-section-header-icon"><Briefcase size={12} /></span>
-                            <h4 className="pi-section-header-label">Experience</h4>
+                            <h4 className="pi-section-header-label">{t('Experience')}</h4>
                         </div>
                         <div className="pi-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             {experience.slice(0, EXP_CAP).map((exp, i) => {
@@ -2958,7 +2961,7 @@ export function ProfileIntelligenceSettings({
                                 );
                             })}
                             {experience.length > EXP_CAP && (
-                                <div className="pi-chip-overflow" style={{ fontSize: 11, color: 'var(--pi-tertiary)' }}>+{experience.length - EXP_CAP} more</div>
+                                <div className="pi-chip-overflow" style={{ fontSize: 11, color: 'var(--pi-tertiary)' }}>+{experience.length - EXP_CAP} {t('more')}</div>
                             )}
                         </div>
                     </div>
@@ -2969,7 +2972,7 @@ export function ProfileIntelligenceSettings({
                     <div className="pi-section-card">
                         <div className="pi-section-header">
                             <span className="pi-section-header-icon"><Layers size={12} /></span>
-                            <h4 className="pi-section-header-label">Skills</h4>
+                            <h4 className="pi-section-header-label">{t('Skills')}</h4>
                         </div>
                         {hasCategorizedSkills ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -2990,7 +2993,7 @@ export function ProfileIntelligenceSettings({
                                     );
                                 })}
                                 {chipsUsed < seenSkill.size && (
-                                    <div className="pi-chip-overflow"><span className="pi-chip pi-chip--more">+{seenSkill.size - chipsUsed} more</span></div>
+                                    <div className="pi-chip-overflow"><span className="pi-chip pi-chip--more">+{seenSkill.size - chipsUsed} {t('more')}</span></div>
                                 )}
                             </div>
                         ) : (
@@ -3001,7 +3004,7 @@ export function ProfileIntelligenceSettings({
                                     ))}
                                 </div>
                                 {skillsFlat.length > SKILL_CAP && (
-                                    <div className="pi-chip-overflow"><span className="pi-chip pi-chip--more">+{skillsFlat.length - SKILL_CAP} more</span></div>
+                                    <div className="pi-chip-overflow"><span className="pi-chip pi-chip--more">+{skillsFlat.length - SKILL_CAP} {t('more')}</span></div>
                                 )}
                             </>
                         )}
@@ -3013,7 +3016,7 @@ export function ProfileIntelligenceSettings({
                     <div className="pi-section-card">
                         <div className="pi-section-header">
                             <span className="pi-section-header-icon"><FolderKanban size={12} /></span>
-                            <h4 className="pi-section-header-label">Projects</h4>
+                            <h4 className="pi-section-header-label">{t('Projects')}</h4>
                         </div>
                         <div className="pi-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             {projects.slice(0, PROJ_CAP).map((proj, i) => {
@@ -3032,7 +3035,7 @@ export function ProfileIntelligenceSettings({
                                 );
                             })}
                             {projects.length > PROJ_CAP && (
-                                <div className="pi-chip-overflow" style={{ fontSize: 11, color: 'var(--pi-tertiary)' }}>+{projects.length - PROJ_CAP} more</div>
+                                <div className="pi-chip-overflow" style={{ fontSize: 11, color: 'var(--pi-tertiary)' }}>+{projects.length - PROJ_CAP} {t('more')}</div>
                             )}
                         </div>
                     </div>
@@ -3043,7 +3046,7 @@ export function ProfileIntelligenceSettings({
                     <div className="pi-section-card">
                         <div className="pi-section-header">
                             <span className="pi-section-header-icon"><GraduationCap size={12} /></span>
-                            <h4 className="pi-section-header-label">Education</h4>
+                            <h4 className="pi-section-header-label">{t('Education')}</h4>
                         </div>
                         <div className="pi-stagger" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                             {education.map((ed, i) => {
@@ -3079,21 +3082,21 @@ export function ProfileIntelligenceSettings({
     const renderTavily = () => (
         <>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <h3 className="pi-section-label" style={{ margin: 0 }}>Tavily Search API</h3>
+                <h3 className="pi-section-label" style={{ margin: 0 }}>{t('Tavily Search API')}</h3>
                 {/* The kit's green tag, as Settings › Intelligence says "Connected", and
                     the same badge motion: it pops in on a save and leaves on a remove. */}
                 <Presence kind="badge" id={hasStoredTavilyKey ? 'connected' : null} ready={tavilyChecked}>
-                    <LiquidGlassBadge variant="green" icon={<Check size={10} strokeWidth={2.5} />}>Connected</LiquidGlassBadge>
+                    <LiquidGlassBadge variant="green" icon={<Check size={10} strokeWidth={2.5} />}>{t('Connected')}</LiquidGlassBadge>
                 </Presence>
             </div>
             <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: '0 0 16px', lineHeight: 1.6 }}>
-                Powers live web search for company research. If not provided, LLM general knowledge is used (may be outdated).
+                {t('Powers live web search for company research. If not provided, LLM general knowledge is used (may be outdated).')}
             </p>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--pi-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>API Key</label>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--pi-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{t('API Key')}</label>
                 {hasStoredTavilyKey && (
                     <button className="pi-pill-btn pi-pill-btn--danger pi-press" style={{ fontSize: 11, padding: '3px 8px' }} onClick={handleRemoveTavilyKey}>
-                        <Trash2 size={10} /> Remove
+                        <Trash2 size={10} /> {t('Remove')}
                     </button>
                 )}
             </div>
@@ -3122,16 +3125,16 @@ export function ProfileIntelligenceSettings({
                     finally { setTavilySaving(false); }
                 }}
             >
-                {tavilySaving ? <><RefreshCw size={12} className="pi-spinner" /> Saving…</> : 'Save API Key'}
+                {tavilySaving ? <><RefreshCw size={12} className="pi-spinner" /> {t('Saving…')}</> : 'Save API Key'}
             </button>
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginTop: 14, padding: '10px 12px', borderRadius: 8, background: 'var(--pi-btn-bg)', border: '1px solid var(--pi-border)' }}>
                 <Info size={12} style={{ color: 'var(--pi-tertiary)', flexShrink: 0, marginTop: 1 }} />
                 <p style={{ fontSize: 11, color: 'var(--pi-tertiary)', margin: 0, lineHeight: 1.6 }}>
-                    Get your free key at{' '}
+                    {t('Get your free key at')}{' '}
                     <span style={{ color: '#22c55e', cursor: 'pointer', textDecoration: 'underline', textDecorationColor: 'rgba(34,197,94,0.4)', textUnderlineOffset: 2 }}
                         onClick={() => window.electronAPI?.openExternal?.('https://app.tavily.com/home')}>
-                        app.tavily.com
-                    </span>. Keys start with <code style={{ fontSize: 11, color: '#22c55e' }}>tvly-</code>.
+                        {t('app.tavily.com')}
+                    </span>. Keys start with <code style={{ fontSize: 11, color: '#22c55e' }}>{t('tvly-')}</code>.
                 </p>
             </div>
         </>
@@ -3161,11 +3164,11 @@ export function ProfileIntelligenceSettings({
                     inline inside its own card via the "Research Now" button below. */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                     <div>
-                        <h3 className="pi-section-label" style={{ margin: 0 }}>Company Intel</h3>
+                        <h3 className="pi-section-label" style={{ margin: 0 }}>{t('Company Intel')}</h3>
                         <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: '4px 0 0', lineHeight: 1.5 }}>
                             {companyName
-                                ? <>Culture, salary, hiring signal and interview difficulty for {companyName}.</>
-                                : <>Culture, salary, hiring signal and interview difficulty for the target company.</>}
+                                ? <>{t('Culture, salary, hiring signal and interview difficulty for')} {companyName}.</>
+                                : <>{t('Culture, salary, hiring signal and interview difficulty for the target company.')}</>}
                         </p>
                     </div>
                     {loaded && (
@@ -3184,9 +3187,9 @@ export function ProfileIntelligenceSettings({
                             <Building2 size={18} style={{ color: 'var(--pi-accent-icon)' }} />
                         </div>
                         <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>No job description yet</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>{t('No job description yet')}</div>
                             <div style={{ fontSize: 12, color: 'var(--pi-secondary)', lineHeight: 1.6, maxWidth: 260 }}>
-                                Upload a job description in <strong style={{ color: 'var(--pi-primary)' }}>Identity</strong> so I can research the target company.
+                                {t('Upload a job description in')} <strong style={{ color: 'var(--pi-primary)' }}>{t('Identity')}</strong> {t('so I can research the target company.')}
                             </div>
                         </div>
                     </div>
@@ -3200,9 +3203,9 @@ export function ProfileIntelligenceSettings({
                             <Building2 size={18} style={{ color: 'var(--pi-accent-icon)' }} />
                         </div>
                         <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>Company name not detected</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>{t('Company name not detected')}</div>
                             <div style={{ fontSize: 12, color: 'var(--pi-secondary)', lineHeight: 1.6, maxWidth: 260 }}>
-                                Your JD didn't name a company clearly. Re-upload a JD with the company in the first few lines, or ask for company research directly.
+                                {t("Your JD didn't name a company clearly. Re-upload a JD with the company in the first few lines, or ask for company research directly.")}
                             </div>
                         </div>
                     </div>
@@ -3211,7 +3214,7 @@ export function ProfileIntelligenceSettings({
                 {companySearchQuotaExhausted && (
                     <div style={{ display: 'flex', gap: 8, padding: '8px 12px', borderRadius: 8, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)', marginBottom: 12, fontSize: 11, color: '#f59e0b', lineHeight: 1.5 }}>
                         <span style={{ flexShrink: 0 }}>⚠</span>
-                        Web search credits exhausted — showing AI-only research.
+                        {t('Web search credits exhausted — showing AI-only research.')}
                     </div>
                 )}
                 {!companyDossier && !companyResearching && !aotResearching && companyName && (
@@ -3220,9 +3223,9 @@ export function ProfileIntelligenceSettings({
                             <Building2 size={18} style={{ color: 'var(--pi-accent-icon)' }} />
                         </div>
                         <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>Ready to research</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>{t('Ready to research')}</div>
                             <div style={{ fontSize: 12, color: 'var(--pi-secondary)', lineHeight: 1.6, maxWidth: 260 }}>
-                                Hiring strategy, interview focus, salary signals and culture for <strong style={{ color: 'var(--pi-primary)' }}>{companyName}</strong>.
+                                {t('Hiring strategy, interview focus, salary signals and culture for')} <strong style={{ color: 'var(--pi-primary)' }}>{companyName}</strong>.
                             </div>
                         </div>
                         <LiquidGlassButton
@@ -3230,7 +3233,7 @@ export function ProfileIntelligenceSettings({
                             className="lg-sm lg-wide pi-action-lg"
                             onClick={() => doCompanyResearch(false)}
                         >
-                            Research Now
+                            {t('Research Now')}
                         </LiquidGlassButton>
                     </div>
                 )}
@@ -3239,7 +3242,7 @@ export function ProfileIntelligenceSettings({
                         {/* Work Culture skeleton — overall rating + 4 sub-ratings grid.
                             Card shell is solid (no pulse); only the inner text placeholders breathe. */}
                         <div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Work Culture</div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Work Culture')}</div>
                             <div style={{ border: '1px solid var(--pi-border)', borderRadius: 8, padding: '12px 14px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--pi-border)' }}>
                                     <div className="pi-skeleton" style={{ height: 18, width: 64, borderRadius: 4 }} />
@@ -3258,7 +3261,7 @@ export function ProfileIntelligenceSettings({
 
                         {/* Salary Estimates skeleton — list of role rows */}
                         <div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Salary Estimates</div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Salary Estimates')}</div>
                             <div style={{ border: '1px solid var(--pi-border)', borderRadius: 8, overflow: 'hidden' }}>
                                 {[1, 2].map(i => (
                                     <div key={i} style={{
@@ -3276,7 +3279,7 @@ export function ProfileIntelligenceSettings({
                         {/* Hiring Strategy skeleton — prose block.
                             Card shell solid, 3 line placeholders inside breathe like real text lines. */}
                         <div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Hiring Strategy</div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Hiring Strategy')}</div>
                             <div style={{ border: '1px solid var(--pi-border)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 <div className="pi-skeleton" style={{ height: 9, width: '95%', borderRadius: 3 }} />
                                 <div className="pi-skeleton" style={{ height: 9, width: '88%', borderRadius: 3 }} />
@@ -3286,7 +3289,7 @@ export function ProfileIntelligenceSettings({
 
                         {/* Interview Focus skeleton — prose block + difficulty bar */}
                         <div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Interview Focus</div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Interview Focus')}</div>
                             <div style={{ borderRadius: 8, border: '1px solid var(--pi-border)', padding: '10px 12px' }}>
                                 <div className="pi-skeleton" style={{ height: 10, width: '95%', borderRadius: 3, marginBottom: 6 }} />
                                 <div className="pi-skeleton" style={{ height: 10, width: '70%', borderRadius: 3 }} />
@@ -3306,7 +3309,7 @@ export function ProfileIntelligenceSettings({
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                                 <Gift size={11} style={{ color: '#22c55e' }} />
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Benefits</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Benefits')}</div>
                             </div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                 {[1, 2, 3, 4].map(i => (
@@ -3317,7 +3320,7 @@ export function ProfileIntelligenceSettings({
 
                         {/* Core Values skeleton — chip-row (purple pills like the real section) */}
                         <div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Core Values</div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Core Values')}</div>
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                 {[1, 2, 3].map(i => (
                                     <div key={i} className="pi-skeleton" style={{ height: 22, width: 70 + (i * 14), borderRadius: 20 }} />
@@ -3329,7 +3332,7 @@ export function ProfileIntelligenceSettings({
                         <div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
                                 <AlertCircle size={11} style={{ color: '#fb923c' }} />
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Common Complaints</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{t('Common Complaints')}</div>
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 {[1, 2].map(i => (
@@ -3348,7 +3351,7 @@ export function ProfileIntelligenceSettings({
                         {/* Recent News skeleton — prose block.
                             Card shell solid, two line placeholders breathe like real text lines. */}
                         <div>
-                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Recent News</div>
+                            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-tertiary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Recent News')}</div>
                             <div style={{ border: '1px solid var(--pi-border)', borderRadius: 8, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                                 <div className="pi-skeleton" style={{ height: 9, width: '90%', borderRadius: 3 }} />
                                 <div className="pi-skeleton" style={{ height: 9, width: '70%', borderRadius: 3 }} />
@@ -3367,7 +3370,7 @@ export function ProfileIntelligenceSettings({
                     <div className="pi-cascade" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
                         {companyDossier.culture_ratings && (
                             <div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Work Culture</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Work Culture')}</div>
                                 <div style={{ border: '1px solid var(--pi-border)', borderRadius: 8, padding: '12px 14px' }}>
                                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--pi-border)' }}>
                                         <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -3400,7 +3403,7 @@ export function ProfileIntelligenceSettings({
                         )}
                         {companyDossier.salary_estimates?.length > 0 && (
                             <div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Salary Estimates</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Salary Estimates')}</div>
                                 <div style={{ border: '1px solid var(--pi-border)', borderRadius: 8, overflow: 'hidden' }}>
                                     {companyDossier.salary_estimates.map((s: any, i: number) => {
                                         // Confidence is now encoded by the amount's color + weight
@@ -3432,7 +3435,7 @@ export function ProfileIntelligenceSettings({
                         )}
                         {companyDossier.hiring_strategy && (
                             <div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Hiring Strategy</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Hiring Strategy')}</div>
                                 <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: 0, lineHeight: 1.6, padding: '10px 12px', borderRadius: 8, background: 'var(--pi-btn-bg)', border: '1px solid var(--pi-border)' }}>
                                     {companyDossier.hiring_strategy}
                                 </p>
@@ -3440,7 +3443,7 @@ export function ProfileIntelligenceSettings({
                         )}
                         {companyDossier.interview_focus && (
                             <div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Interview Focus</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Interview Focus')}</div>
                                 <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: 0, lineHeight: 1.6, padding: '10px 12px', borderRadius: 8, background: 'var(--pi-btn-bg)', border: '1px solid var(--pi-border)' }}>
                                     {companyDossier.interview_focus}
                                     {/* Difficulty progress bar — sits inline at the bottom of the
@@ -3462,7 +3465,7 @@ export function ProfileIntelligenceSettings({
                                         return (
                                             <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--pi-border)' }}>
                                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                                                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--pi-tertiary)' }}>Difficulty</span>
+                                                    <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--pi-tertiary)' }}>{t('Difficulty')}</span>
                                                     <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em', color: current.color }}>{current.label}</span>
                                                 </div>
                                                 <div style={{ position: 'relative', height: 6, borderRadius: 3, background: 'var(--pi-btn-bg)', overflow: 'hidden' }}>
@@ -3482,7 +3485,7 @@ export function ProfileIntelligenceSettings({
                         )}
                         {companyDossier.benefits?.length > 0 && (
                             <div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Benefits</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Benefits')}</div>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                     {companyDossier.benefits.map((b: string, i: number) => (
                                         <span key={i} style={{ fontSize: 11, color: '#34d399', padding: '3px 10px', borderRadius: 20, background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.18)' }}>{b}</span>
@@ -3492,7 +3495,7 @@ export function ProfileIntelligenceSettings({
                         )}
                         {companyDossier.core_values?.length > 0 && (
                             <div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Core Values</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Core Values')}</div>
                                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                                     {companyDossier.core_values.map((v: string, i: number) => (
                                         <span key={i} style={{ fontSize: 11, color: 'var(--pi-badge-text)', padding: '3px 10px', borderRadius: 20, background: 'var(--pi-accent-subtle)', border: '1px solid var(--pi-badge-border)' }}>{v}</span>
@@ -3502,7 +3505,7 @@ export function ProfileIntelligenceSettings({
                         )}
                         {companyDossier.critics?.length > 0 && (
                             <div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Common Complaints</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Common Complaints')}</div>
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                                     {companyDossier.critics.map((c: any, i: number) => (
                                         <div key={i} style={{ padding: '10px 12px', borderRadius: 8, background: 'var(--pi-btn-bg)', border: '1px solid var(--pi-border)' }}>
@@ -3518,7 +3521,7 @@ export function ProfileIntelligenceSettings({
                         )}
                         {companyDossier.recent_news && (
                             <div>
-                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Recent News</div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--pi-hero)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t('Recent News')}</div>
                                 <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: 0, lineHeight: 1.6, padding: '10px 12px', borderRadius: 8, background: 'var(--pi-btn-bg)', border: '1px solid var(--pi-border)' }}>
                                     {companyDossier.recent_news}
                                 </p>
@@ -3621,15 +3624,15 @@ export function ProfileIntelligenceSettings({
                     offer to "regenerate" something whose inputs no longer exist. */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                     <div>
-                        <h3 className="pi-section-label" style={{ margin: 0 }}>Cover Letter</h3>
+                        <h3 className="pi-section-label" style={{ margin: 0 }}>{t('Cover Letter')}</h3>
                         <p style={{ fontSize: 12, color: 'var(--pi-secondary)', margin: '4px 0 0', lineHeight: 1.5 }}>
-                            A tailored letter from your resume and this job description.
+                            {t('A tailored letter from your resume and this job description.')}
                         </p>
                     </div>
                     {showOutput && (
                         <button className="pi-pill-btn pi-press" onClick={() => doGenerate(true)}>
                             <RefreshCw size={12} className={coverLetterGenerating ? 'pi-spinner' : ''} />
-                            Regenerate
+                            {t('Regenerate')}
                         </button>
                     )}
                 </div>
@@ -3676,9 +3679,9 @@ export function ProfileIntelligenceSettings({
                             <Mail size={18} style={{ color: 'var(--pi-accent-icon)' }} />
                         </div>
                         <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>No resume yet</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>{t('No resume yet')}</div>
                             <div style={{ fontSize: 12, color: 'var(--pi-secondary)', lineHeight: 1.6, maxWidth: 260 }}>
-                                Upload your resume in <strong style={{ color: 'var(--pi-primary)' }}>Identity</strong> first — cover letters are tailored from it.
+                                {t('Upload your resume in')} <strong style={{ color: 'var(--pi-primary)' }}>{t('Identity')}</strong> {t('first — cover letters are tailored from it.')}
                             </div>
                         </div>
                     </div>
@@ -3691,9 +3694,9 @@ export function ProfileIntelligenceSettings({
                             <Mail size={18} style={{ color: 'var(--pi-accent-icon)' }} />
                         </div>
                         <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>No job description yet</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>{t('No job description yet')}</div>
                             <div style={{ fontSize: 12, color: 'var(--pi-secondary)', lineHeight: 1.6, maxWidth: 260 }}>
-                                Upload a job description in <strong style={{ color: 'var(--pi-primary)' }}>Identity</strong> so the letter can be tailored to the role.
+                                {t('Upload a job description in')} <strong style={{ color: 'var(--pi-primary)' }}>{t('Identity')}</strong> {t('so the letter can be tailored to the role.')}
                             </div>
                         </div>
                     </div>
@@ -3706,9 +3709,9 @@ export function ProfileIntelligenceSettings({
                             <Mail size={18} style={{ color: 'var(--pi-accent-icon)' }} />
                         </div>
                         <div>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>Ready to write</div>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)', marginBottom: 4 }}>{t('Ready to write')}</div>
                             <div style={{ fontSize: 12, color: 'var(--pi-secondary)', lineHeight: 1.6, maxWidth: 260 }}>
-                                Generate a personalised cover letter from your resume and this job description.
+                                {t('Generate a personalised cover letter from your resume and this job description.')}
                             </div>
                         </div>
                         <LiquidGlassButton
@@ -3716,7 +3719,7 @@ export function ProfileIntelligenceSettings({
                             className="lg-sm lg-wide pi-action-lg"
                             onClick={() => doGenerate(false)}
                         >
-                            Generate Letter
+                            {t('Generate Letter')}
                         </LiquidGlassButton>
                     </div>
                 )}
@@ -3733,8 +3736,8 @@ export function ProfileIntelligenceSettings({
                                     <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.12em', color: 'var(--pi-badge-text)', background: 'var(--pi-accent-subtle)', padding: '2px 7px', borderRadius: 20 }}>
                                         COVER
                                     </span>
-                                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)' }}>Tailored Letter</span>
-                                    <span style={{ fontSize: 11, color: 'var(--pi-tertiary)' }}>· for {profileData?.activeJD?.title ? `${profileData.activeJD.title}${profileData.activeJD.company ? ` @ ${profileData.activeJD.company}` : ''}` : 'this role'}</span>
+                                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--pi-primary)' }}>{t('Tailored Letter')}</span>
+                                    <span style={{ fontSize: 11, color: 'var(--pi-tertiary)' }}>{t('· for')} {profileData?.activeJD?.title ? `${profileData.activeJD.title}${profileData.activeJD.company ? ` @ ${profileData.activeJD.company}` : ''}` : 'this role'}</span>
                                 </div>
                                 <button
                                     onClick={() => { copyText(coverLetter.full_text || '').catch(() => {}); }}
@@ -3743,7 +3746,7 @@ export function ProfileIntelligenceSettings({
                                     onMouseEnter={e => (e.currentTarget.style.color = 'var(--pi-primary)')}
                                     onMouseLeave={e => (e.currentTarget.style.color = 'var(--pi-tertiary)')}
                                 >
-                                    <Check size={11} /> Copy Full Letter
+                                    <Check size={11} /> {t('Copy Full Letter')}
                                 </button>
                             </div>
                             {/* Letter body — prose-only flow: salutation → opening
@@ -3847,13 +3850,13 @@ export function ProfileIntelligenceSettings({
                 boxShadow: 'inset -1px 0 0 rgba(255,255,255,0.06)',
             }}>
                 {/* Close */}
-                <button onClick={onClose} className="pi-close-btn" style={{ marginLeft: 8, marginBottom: 4 }} title="Close">
+                <button onClick={onClose} className="pi-close-btn" style={{ marginLeft: 8, marginBottom: 4 }} title={t('Close')}>
                     <X size={15} />
                 </button>
 
                 {/* Header */}
                 <div style={{ padding: '8px 20px 12px', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                    <h2 style={{ fontSize: 13, fontWeight: 700, color: 'var(--pi-hero)', margin: 0, letterSpacing: '0.01em', textTransform: 'uppercase' as const }}>Profile Intelligence</h2>
+                    <h2 style={{ fontSize: 13, fontWeight: 700, color: 'var(--pi-hero)', margin: 0, letterSpacing: '0.01em', textTransform: 'uppercase' as const }}>{t('Profile Intelligence')}</h2>
                 </div>
 
                 {/* Nav — position:relative for sliding indicator */}
@@ -3896,7 +3899,7 @@ export function ProfileIntelligenceSettings({
                             className="lg-sm lg-wide pi-upgrade-lg"
                             onClick={() => openPlans()}
                         >
-                            Upgrade
+                            {t('Upgrade')}
                         </LiquidGlassButton>
                     ) : (
                     <button

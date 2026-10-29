@@ -19,7 +19,15 @@ import { fileURLToPath } from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 // Line comments out: the component's own comment quotes the old copy.
-const source = fs.readFileSync(path.join(here, '../../ModelSelectorWindow.tsx'), 'utf8').replace(/(^|\s)\/\/.*$/gm, '$1');
+// Components pass their copy through t('…') so it can be translated. The copy and
+// the markup around it did not move, only the call did, so unwrap it before
+// asserting on rendered text. Files that assert on the t('…') call itself read
+// the raw source through readRaw().
+const untranslate = (src) => src
+    .replace(/([\w-]+)=\{t\((['"])([\s\S]*?)\2\)\}/g, '$1="$3"')
+    .replace(/\{t\((['"])([\s\S]*?)\1\)\}/g, '$2');
+
+const source = untranslate(fs.readFileSync(path.join(here, '../../ModelSelectorWindow.tsx'), 'utf8')).replace(/(^|\s)\/\/.*$/gm, '$1');
 const empty = source.slice(
     source.indexOf('availableModels.length === 0 ? ('),
     source.indexOf('role="listbox"'),

@@ -34,6 +34,7 @@ import { AlertCircle, Check, RefreshCw } from 'lucide-react';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
 import '../ui-components/LiquidGlassButton.css';
 import './ProviderChangeNotice.css';
+import { useT } from '../i18n';
 
 export interface ProviderChangeWarning { count: number; oldProvider: string; newProvider: string }
 export interface ReindexProgress { done: number; total: number }
@@ -159,6 +160,7 @@ type Main =
   | { kind: 'running' | 'done'; progress: ReindexProgress };
 
 export const ProviderChangeNotice: React.FC<ProviderChangeNoticeProps> = (props) => {
+  const t = useT();
   const { open } = props;
   // The host clears everything as it closes the card; the slide out keeps the
   // last open content instead of emptying as it goes.
@@ -280,11 +282,11 @@ export const ProviderChangeNotice: React.FC<ProviderChangeNoticeProps> = (props)
                 <p className={BODY}>
                   <SwapText swapKey={main.kind}>
                     {main.kind === 'warning' ? (
-                      <>⚠ {main.warning.count} meetings used your previous AI provider ({main.warning.oldProvider}) and won't appear in search results under {main.warning.newProvider}.</>
+                      <>⚠ {main.warning.count} {t('meetings used your previous AI provider (')}{main.warning.oldProvider}{t(") and won't appear in search results under")} {main.warning.newProvider}.</>
                     ) : main.kind === 'done' ? (
                       'Your past conversations are searchable again.'
                     ) : (
-                      <>Re-indexing your past conversations for the upgraded AI model… <Digits value={main.progress.done} />/{main.progress.total}</>
+                      <>{t('Re-indexing your past conversations for the upgraded AI model…')} <Digits value={main.progress.done} />/{main.progress.total}</>
                     )}
                   </SwapText>
                 </p>
@@ -306,13 +308,13 @@ export const ProviderChangeNotice: React.FC<ProviderChangeNoticeProps> = (props)
                 onClick={onDismiss}
                 className={`${BUTTON} font-medium text-text-secondary hover:text-text-primary ${isLight ? 'hover:bg-black/5' : 'hover:bg-white/5'}`}
               >
-                Dismiss
+                {t('Dismiss')}
               </button>
               <button
                 onClick={onReindex}
                 className={`${BUTTON} font-semibold bg-[#ff3333]/10 text-[#ff3333] hover:bg-[#ff3333]/20`}
               >
-                Re-index automatically
+                {t('Re-index automatically')}
               </button>
             </div>
           </Collapse>

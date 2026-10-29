@@ -20,6 +20,7 @@ import 'katex/dist/katex.min.css';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { DiagramAwareMarkdown } from './diagram/DiagramAwareMarkdown';
+import { useT } from '../i18n';
 
 registerPrismLanguages();
 
@@ -203,6 +204,7 @@ const MeetingChatOverlay: React.FC<MeetingChatOverlayProps> = ({
     initialQuery = '',
     // onNewQuery
 }) => {
+    const t = useT();
     const [messages, setMessages] = useState<Message[]>([]);
     const [chatState, setChatState] = useState<ChatState>('idle');
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -599,8 +601,8 @@ ${contextString}`;
                             {/* One step darker than it was (tertiary -> secondary, logo
                                 50% -> 70%), by owner request. */}
                             <div className="flex items-center gap-2 text-text-secondary">
-                                <img src={nativelyIcon} className="w-3.5 h-3.5 force-black-icon opacity-70" alt="logo" />
-                                <span className="text-[13px] font-medium">Search this meeting</span>
+                                <img src={nativelyIcon} className="w-3.5 h-3.5 force-black-icon opacity-70" alt={t('logo')} />
+                                <span className="text-[13px] font-medium">{t('Search this meeting')}</span>
                             </div>
                             <button
                                 onClick={handleClose}

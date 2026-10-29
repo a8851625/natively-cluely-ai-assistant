@@ -2,6 +2,7 @@ import { ChevronUp, ChevronDown } from "lucide-react";
 import icon from "../icon.png";
 import nativelyMark from "../overlay/heroGlass/natively-mark-black.svg";
 import type { OverlayAppearance } from "../../lib/overlayAppearance";
+import { useT } from '../../i18n';
 
 interface TopPillProps {
     expanded: boolean;
@@ -32,6 +33,7 @@ export default function TopPill({
     onLogoClick,
     interfaceTheme,
 }: TopPillProps) {
+    const t = useT();
     if (interfaceTheme === "lavender") {
         // The hero card's pill markup, as the website draws it, with the
         // app's three actions wired to it.
@@ -41,7 +43,7 @@ export default function TopPill({
                     <div className="draggable-area">
                         <button
                             onClick={onLogoClick}
-                            aria-label="Natively"
+                            aria-label={t('Natively')}
                             className="interaction-base interaction-press w-8 h-8 rounded-full flex items-center justify-center"
                         >
                             {/* The mark fills the button: its own ring is the
@@ -60,7 +62,7 @@ export default function TopPill({
                     </button>
                     <button
                         onClick={onQuit}
-                        aria-label="Stop"
+                        aria-label={t('Stop')}
                         className="overlay-icon-surface overlay-icon-surface-hover interaction-base interaction-press overlay-text-muted w-8 h-8 rounded-full flex items-center justify-center"
                     >
                         <div className="w-3 h-3 rounded-[2px] bg-current opacity-90 relative" />
@@ -99,7 +101,7 @@ export default function TopPill({
                     >
                         <img
                             src={icon}
-                            alt="Natively"
+                            alt={t('Natively')}
                             className="top-pill-logo w-7 h-7 object-contain opacity-95 force-black-icon"
                             draggable="false"
                             onDragStart={(e) => e.preventDefault()}

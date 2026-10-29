@@ -5,6 +5,7 @@ import { notesLabel, notesWereEdited } from '../meeting/notesView';
 import { templatePickerOptions } from '../meeting/notesFeedback';
 import { enhancedNotesMarkdown, enhancedSections } from './notepadView';
 import { NotesTemplateMenu, type TemplatePick } from './NotesTemplateMenu';
+import { useT } from '../../i18n';
 
 /**
  * The notes after Stop, in the notepad (2026-10-20), as Granola turns the same
@@ -33,6 +34,7 @@ export const NotesEnhanced = forwardRef<NotesEnhancedHandle, {
     /** All templates…: the window opens its gallery on the template in use. */
     onOpenGallery: (currentTemplateId: string | null) => void;
 }>(({ meetingId, onTitle, onOpenGallery }, ref) => {
+    const t = useT();
     const [details, setDetails] = useState<Details>(null);
     const [modes, setModes] = useState<Array<{ id: string; name: string; templateType: string }>>([]);
     const [regenerating, setRegenerating] = useState(false);
@@ -149,13 +151,13 @@ export const NotesEnhanced = forwardRef<NotesEnhancedHandle, {
                 />
                 <button type="button" onClick={() => { void copy(); }} className={softBtn} style={ink('--np-ink')}>
                     {copied ? <Check className="w-3.5 h-3.5" strokeWidth={2} /> : <Copy className="w-3.5 h-3.5" strokeWidth={2} />}
-                    {copied ? 'Copied' : 'Copy'}
+                    {copied ? t('Copied') : t('Copy')}
                 </button>
                 <ShareMenu meetingId={meetingId} disabled={regenerating} hasTranscript={(details?.transcript?.length ?? 0) > 0} onCopy={copy} />
                 <button
                     type="button"
-                    aria-label="Open meeting"
-                    title="Open meeting"
+                    aria-label={t('Open meeting')}
+                    title={t('Open meeting')}
                     onClick={() => { void window.electronAPI?.notesWindowOpenMeeting?.(meetingId); }}
                     className="np-wash w-7 h-7 shrink-0 rounded-full flex items-center justify-center transition-colors"
                     style={ink('--np-ink-secondary')}
@@ -168,8 +170,8 @@ export const NotesEnhanced = forwardRef<NotesEnhancedHandle, {
                 <div className="np-outline mt-3 pl-3 pr-1.5 py-1.5 rounded-xl flex items-center justify-between gap-3">
                     <p className="text-[12px] leading-4" style={ink('--np-ink-secondary')}>You edited these notes. {confirm.kind === 'rewrite' ? 'Rewriting them' : `Rewriting them in ${confirm.name}`} replaces your edits.</p>
                     <div className="flex items-center gap-1 shrink-0">
-                        <button type="button" onClick={() => setConfirm(null)} className="np-wash h-7 px-3 rounded-full text-[13px]" style={ink('--np-ink-secondary')}>Cancel</button>
-                        <button type="button" onClick={() => { void regenerate(confirm, true); }} className={softBtn} style={ink('--np-ink')}>Rewrite</button>
+                        <button type="button" onClick={() => setConfirm(null)} className="np-wash h-7 px-3 rounded-full text-[13px]" style={ink('--np-ink-secondary')}>{t('Cancel')}</button>
+                        <button type="button" onClick={() => { void regenerate(confirm, true); }} className={softBtn} style={ink('--np-ink')}>{t('Rewrite')}</button>
                     </div>
                 </div>
             )}

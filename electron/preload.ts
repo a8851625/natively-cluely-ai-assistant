@@ -1375,6 +1375,44 @@ interface ElectronAPI {
     isActive: boolean;
     createdAt: string;
   } | null>;
+  /** Template gallery + each template's seeded note sections (single source of truth: the backend). */
+  modesGetTemplateCatalog: () => Promise<{
+    success: boolean;
+    templates: Array<{
+      type: string;
+      label: string;
+      sections: Array<{ title: string; description: string }>;
+    }>;
+    error?: string;
+  }>;
+  /** The meeting note-template gallery, for "Use a template" on a mode's notes. */
+  modesListNoteTemplates: () => Promise<{
+    success: boolean;
+    defaultId: string | null;
+    templates: Array<{
+      id: string;
+      name: string;
+      group: string;
+      sections: Array<{ title: string; description: string }>;
+    }>;
+    error?: string;
+  }>;
+  /** Whether modes can be mutated on this build, and why ('licence' | 'local' | 'none'). */
+  modesGetMutationAccess: () => Promise<{
+    licenceActive: boolean;
+    localUnlocked: boolean;
+    allowed: boolean;
+    via: 'licence' | 'local' | 'none';
+  }>;
+  /** The default-off local opt-in for a self-built copy (see isLocalModesUnlocked). */
+  modesSetLocalUnlock: (enabled: boolean) => Promise<{
+    success: boolean;
+    licenceActive: boolean;
+    localUnlocked: boolean;
+    allowed: boolean;
+    via: 'licence' | 'local' | 'none';
+    error?: string;
+  }>;
   modesCreate: (params: {
     name: string;
     templateType: string;
@@ -3616,6 +3654,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Modes API
   modesGetAll: () => ipcRenderer.invoke('modes:get-all'),
   modesGetActive: () => ipcRenderer.invoke('modes:get-active'),
+  modesGetTemplateCatalog: () => ipcRenderer.invoke('modes:get-template-catalog'),
+  modesListNoteTemplates: () => ipcRenderer.invoke('modes:list-note-templates'),
+  modesGetMutationAccess: () => ipcRenderer.invoke('modes:get-mutation-access'),
+  modesSetLocalUnlock: (enabled: boolean) => ipcRenderer.invoke('modes:set-local-unlock', enabled),
   modesCreate: (params: { name: string; templateType: string }) =>
     ipcRenderer.invoke('modes:create', params),
   modesGenerateFromBrief: (params: {

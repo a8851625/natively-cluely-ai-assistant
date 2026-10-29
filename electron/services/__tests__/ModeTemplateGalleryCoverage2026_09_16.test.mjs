@@ -8,15 +8,19 @@
 // could not create either mode from the gallery, and a custom mode's template
 // <select> could not display or pick them.
 //
-// The renderer cannot import the backend module (premium/src is bundled into the
-// renderer; electron/services is main-process), so the lists are duplicated by
-// design. This pins them together: every built-in except General (which the
-// gallery offers as "Start from empty mode") must appear in the renderer's
-// TemplateType union, TEMPLATES, TEMPLATE_DEFAULTS and context placeholders.
+// 2026-10-30 — the duplication is gone, and so is the class of bug that caused
+// this. The Modes Manager panel now lives in src/components/settings/
+// ModesSettings.tsx (the premium forward is gone on a source-available build),
+// and it reads the template list, the labels and each template's seeded note
+// sections from the backend over IPC (`modes:get-template-catalog`). Nothing in
+// the renderer states which templates exist any more, so a new built-in appears
+// in the gallery with no renderer change.
 //
-// TEMPLATE_DEFAULTS is only checked for KEYS: nothing in the renderer reads it
-// (the backend's TEMPLATE_NOTE_SECTIONS is what seeds a new mode), and its
-// General / Team Meet titles already predate the backend's current ones.
+// What remains renderer-side is only presentation — a blurb and a context
+// placeholder per template — and one list that has to exist at build time: the
+// TemplateType union. This test pins both to the backend's BUILTIN_MODE_LABELS,
+// plus the gallery's structural absence of General (offered separately as
+// "Start from empty mode"), so the renderer cannot quietly fall behind again.
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -29,7 +33,9 @@ const repoRoot = path.resolve(__dirname, '../../..');
 const read = (p) => fs.readFileSync(path.resolve(repoRoot, p), 'utf8');
 
 const builtinSrc = read('electron/services/builtinModes.ts');
-const rendererSrc = read('premium/src/ModesSettings.tsx');
+const rendererSrc = read('src/components/modes/modesCatalog.ts');
+const panelSrc = read('src/components/settings/ModesSettings.tsx');
+const dialogSrc = read('src/components/modes/NewModeDialog.tsx');
 
 /** The text between `startMarker` and the first `endMarker` after it. */
 function block(src, startMarker, endMarker) {
@@ -65,16 +71,34 @@ describe('Modes Manager template gallery covers every built-in template', () => 
     assert.deepEqual([...union].sort(), [...builtins].sort());
   });
 
-  test('TEMPLATES gallery offers every built-in except General', () => {
-    const body = block(rendererSrc, 'const TEMPLATES: Array<{', '\n];');
-    const types = [...body.matchAll(/type:\s*'([a-z-]+)'/g)].map((m) => m[1]).filter((t) => t !== 'TemplateType');
+  test('TEMPLATES offers every built-in except General', () => {
+    const body = block(rendererSrc, 'const TEMPLATES: Array<TemplateCard>', '\n];');
+    const types = [...body.matchAll(/type:\s*'([a-z-]+)'/g)].map((m) => m[1]);
     assert.deepEqual([...types].sort(), [...galleryExpected].sort());
   });
 
-  test('TEMPLATE_DEFAULTS has an entry for every built-in', () => {
-    const renderer = arrayKeysOf(block(rendererSrc,
-      'const TEMPLATE_DEFAULTS: Record<TemplateType, Array<{ title: string; description: string }>> = {', '\n};'));
-    assert.deepEqual(renderer.sort(), [...builtins].sort());
+  test('the gallery renders from the backend catalog, not a renderer copy', () => {
+    // The point of the 2026-10-30 rewrite: the panel asks the backend which
+    // templates exist and how each one is labelled, and iterates that answer.
+    assert.ok(panelSrc.includes('modesGetTemplateCatalog'), 'the panel must read the backend template catalog');
+    assert.ok(dialogSrc.includes('catalog.filter((entry) => entry.type !== \'general\')'),
+      'the gallery must be the backend list minus General');
+    assert.ok(dialogSrc.includes('entry.label'), 'the template label must come from the backend entry');
+    for (const stale of ['TEMPLATE_DEFAULTS', "type: 'seminar'", "type: 'call-center'"]) {
+      assert.ok(!dialogSrc.includes(stale), `the gallery must not hand-maintain ${stale}`);
+    }
+  });
+
+  test('the renderer keeps no SEEDABLE copy of the note sections', () => {
+    // A one-line blurb may of course mention the things a template covers. What
+    // must not exist renderer-side is a copy of the sections themselves — an
+    // array of { title, description } objects is exactly what a seeded template
+    // is made of, and duplicating that is what drifted before.
+    for (const [name, src] of [['modesCatalog', rendererSrc], ['NewModeDialog', dialogSrc]]) {
+      assert.equal((src.match(/title:\s*'/g) ?? []).length, 0, `${name} must not define section titles`);
+      assert.equal((src.match(/description:\s*'/g) ?? []).length, 0, `${name} must not define section descriptions`);
+    }
+    assert.ok(panelSrc.includes('modesListNoteTemplates'), 'note templates come from the backend');
   });
 
   // The notes Summary leads with a mode's defining section, looked up BY TITLE
@@ -107,7 +131,14 @@ describe('Modes Manager template gallery covers every built-in template', () => 
   });
 
   test('every built-in has a context placeholder', () => {
-    const body = block(rendererSrc, 'const map: Record<TemplateType, string> = {', '\n    };');
+    const body = block(rendererSrc, 'const CONTEXT_PLACEHOLDERS: Record<TemplateType, string> = {', '\n};');
     assert.deepEqual(keysOf(body).sort(), [...builtins].sort());
+  });
+
+  test('the placeholder is an example, not the label repeated', () => {
+    const body = block(rendererSrc, 'const CONTEXT_PLACEHOLDERS: Record<TemplateType, string> = {', '\n};');
+    for (const m of body.matchAll(/^\s+'?([a-z-]+)'?\s*:\s*'((?:[^'\\]|\\.)*)'/gm)) {
+      assert.ok(m[2].length > 20, `placeholder for ${m[1]} is too short to be an example`);
+    }
   });
 });

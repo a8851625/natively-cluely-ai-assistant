@@ -37,6 +37,7 @@ import { BrowserMetadataClassifierService } from './services/browser-context/Bro
 import { autoContextVerdict, buildAutoContextRequest, codingAutoAttachEnabled } from './services/browser-context/autoContextRequest';
 import type { SafeWebsiteMetadata } from './services/browser-context/types';
 import { SettingsManager } from './services/SettingsManager';
+import { modesMutationAccess, LOCAL_MODES_UNLOCK_SETTING, type ModesAccess } from './utils/modesAccess';
 import { RERANK_CANDIDATE_POOL, resolveRerankPoolSize } from './services/modes/rerankPool';
 import { buildRerankProbe } from './services/reranking/rerankProbe';
 import { ProviderStatusRegistry } from './services/ProviderStatusRegistry';
@@ -1062,6 +1063,43 @@ export function initializeIpcHandlers(appState: AppState): void {
     } catch {
       return false;
     }
+  };
+
+  // ── Modes: the local unlock ───────────────────────────────────────────────
+  // Every mutating modes:* handler gated on isProOrTrialActive(), which on a
+  // source-available build can only pass through a live trial token: the
+  // LicenseManager it tries first lives in the absent premium/ submodule, so the
+  // require() throws straight into the catch. The consequence was that the whole
+  // Modes backend shipped here but not one non-general mode could be activated.
+  //
+  // `localModesUnlocked` is an explicit, default-OFF opt-in for a locally built
+  // or self-hosted copy, switched on by hand from the Modes panel. It is
+  // deliberately NOT a licence bypass by accident: it only widens the modes:*
+  // surface (nothing else in the app reads it), it must be turned on explicitly,
+  // and every gated action it allows is logged as such so the difference between
+  // "licensed" and "locally unlocked" stays visible in the log.
+  const isLocalModesUnlocked = (): boolean => {
+    try {
+      return (SettingsManager.getInstance() as any).get(LOCAL_MODES_UNLOCK_SETTING) === true;
+    } catch {
+      return false;
+    }
+  };
+
+  // The decision itself is a pure function (electron/utils/modesAccess.ts) so the
+  // licence / local / none matrix is unit-tested without a licence or an app.
+  const isModesMutationAllowed = (): ModesAccess =>
+    modesMutationAccess({ licenceActive: isProOrTrialActive(), localUnlocked: isLocalModesUnlocked() });
+
+  // The one place a modes handler asks. Logs the non-licence path so a build
+  // that was never meant to allow this is diagnosable from the log alone.
+  const denyUnlessModesMutation = (action: string): boolean => {
+    const decision = isModesMutationAllowed();
+    if (decision.allowed) {
+      if (decision.via === 'local') console.log(`[Modes] ${action} allowed by localModesUnlocked (no licence, no trial)`);
+      return true;
+    }
+    return false;
   };
 
   // Clears premium-only context when the pro license is lost.
@@ -19021,9 +19059,85 @@ export function initializeIpcHandlers(appState: AppState): void {
     }
   });
 
+  // ── Modes Manager UI support ──────────────────────────────────────────────
+  // The panel lives in src/components/settings/ModesSettings.tsx. It reads the
+  // template list, each template's default note sections and the note-template
+  // gallery from HERE rather than keeping renderer copies: the premium panel
+  // duplicated them (the renderer cannot import electron/services), and that
+  // duplication is exactly what left Seminar and Call Center out of the gallery
+  // for two releases (see ModeTemplateGalleryCoverage2026_09_16). With these two
+  // handlers, adding a built-in template needs no renderer change at all.
+  safeHandle('modes:get-template-catalog', async () => {
+    try {
+      const { BUILTIN_MODE_LABELS } = require('./services/builtinModes') as typeof import('./services/builtinModes');
+      const { TEMPLATE_NOTE_SECTIONS } = require('./services/ModesManager') as typeof import('./services/ModesManager');
+      return {
+        success: true,
+        templates: (Object.keys(BUILTIN_MODE_LABELS) as Array<keyof typeof BUILTIN_MODE_LABELS>).map((type) => ({
+          type,
+          label: BUILTIN_MODE_LABELS[type],
+          sections: TEMPLATE_NOTE_SECTIONS[type] ?? [],
+        })),
+      };
+    } catch (e: any) {
+      console.error('[IPC] modes:get-template-catalog error:', e);
+      return { success: false, templates: [], error: e.message };
+    }
+  });
+
+  safeHandle('modes:list-note-templates', async () => {
+    try {
+      const { NOTE_TEMPLATES, MODE_DEFAULT_NOTE_TEMPLATE_ID } =
+        require('./services/meeting/noteTemplates') as typeof import('./services/meeting/noteTemplates');
+      return {
+        success: true,
+        defaultId: MODE_DEFAULT_NOTE_TEMPLATE_ID,
+        templates: NOTE_TEMPLATES.map((t) => ({ id: t.id, name: t.name, group: t.group, sections: t.sections })),
+      };
+    } catch (e: any) {
+      console.error('[IPC] modes:list-note-templates error:', e);
+      return { success: false, defaultId: null, templates: [], error: e.message };
+    }
+  });
+
+  // Whether this build may MUTATE modes, and why. Read-only, never gated: the
+  // panel needs it to decide between "you are licensed", "locally unlocked" and
+  // the opt-in strip.
+  safeHandle('modes:get-mutation-access', async () => {
+    const decision = isModesMutationAllowed();
+    return {
+      licenceActive: isProOrTrialActive(),
+      localUnlocked: isLocalModesUnlocked(),
+      allowed: decision.allowed,
+      via: decision.via,
+    };
+  });
+
+  // The opt-in itself. Deliberately its own channel: it must work while every
+  // other mutating modes:* call is still refused, or the panel could never
+  // unlock itself. See isLocalModesUnlocked() for the scope.
+  safeHandle('modes:set-local-unlock', async (_, enabled: boolean) => {
+    try {
+      const value = enabled === true;
+      (SettingsManager.getInstance() as any).set(LOCAL_MODES_UNLOCK_SETTING, value);
+      console.log(`[Modes] localModesUnlocked = ${value} (persisted to settings.json)`);
+      const decision = isModesMutationAllowed();
+      return {
+        success: true,
+        licenceActive: isProOrTrialActive(),
+        localUnlocked: value,
+        allowed: decision.allowed,
+        via: decision.via,
+      };
+    } catch (e: any) {
+      console.error('[IPC] modes:set-local-unlock error:', e);
+      return { success: false, error: e.message };
+    }
+  });
+
   safeHandle('modes:create', async (_, params: { name: string; templateType: string }) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { ModesManager } = require('./services/ModesManager');
       const mode = ModesManager.getInstance().createMode({
         name: params.name,
@@ -19055,7 +19169,7 @@ export function initializeIpcHandlers(appState: AppState): void {
       },
     ) => {
       try {
-        if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+        if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
         if (!params?.brief || typeof params.brief !== 'string' || params.brief.trim().length < 8) {
           return { success: false, error: 'brief_too_short' };
         }
@@ -19116,7 +19230,7 @@ export function initializeIpcHandlers(appState: AppState): void {
         const mgr = ModesManager.getInstance();
         // Gate: changing templateType to a non-general template requires pro.
         // Also gate if the existing mode is already non-general (editing a pro mode requires pro).
-        if (!isProOrTrialActive()) {
+        if (!denyUnlessModesMutation('update')) {
           if (updates.templateType && updates.templateType !== 'general') {
             return { success: false, error: 'pro_required' };
           }
@@ -19172,7 +19286,7 @@ export function initializeIpcHandlers(appState: AppState): void {
       // but the IPC must enforce the same gate so a hand-crafted payload
       // can't bypass. Mirror modes:set-active: general modes are free, all
       // others require pro/trial.
-      if (input.templateType !== 'general' && !isProOrTrialActive()) {
+      if (input.templateType !== 'general' && !denyUnlessModesMutation('build-user-source-contract')) {
         return null;
       }
       const { ModesManager } = require('./services/ModesManager');
@@ -19301,7 +19415,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   safeHandle('modes:delete', async (_, id: string) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { ModesManager } = require('./services/ModesManager');
       ModesManager.getInstance().deleteMode(id);
       return { success: true };
@@ -19319,7 +19433,7 @@ export function initializeIpcHandlers(appState: AppState): void {
         const targetMode = ModesManager.getInstance()
           .getModes()
           .find((m: any) => m.id === id);
-        if (targetMode && targetMode.templateType !== 'general' && !isProOrTrialActive()) {
+        if (targetMode && targetMode.templateType !== 'general' && !denyUnlessModesMutation(`set-active ${targetMode.templateType}`)) {
           return { success: false, error: 'pro_required' };
         }
       }
@@ -19483,7 +19597,7 @@ export function initializeIpcHandlers(appState: AppState): void {
     // profile:upload-resume already uses correctly.
     let selectedPath: string | undefined;
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const result: any = await dialog.showOpenDialog({
         properties: ['openFile'],
         filters: [
@@ -19518,7 +19632,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   safeHandle('modes:delete-reference-file', async (_, id: string) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { ModesManager } = require('./services/ModesManager');
       ModesManager.getInstance().deleteReferenceFile(id);
       return { success: true };
@@ -19589,7 +19703,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   safeHandle('knowledge:regenerate-pack', async (_, params: { fileId: string; modeId: string; fileName: string }) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { isOkfKnowledgeUiEnabled } = require('./intelligence/intelligenceFlags');
       if (!isOkfKnowledgeUiEnabled()) return { success: false, error: 'okf_knowledge_ui_disabled' };
       const { ModesManager } = require('./services/ModesManager');
@@ -19615,7 +19729,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   safeHandle('knowledge:export-pack', async (_, fileId: string) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { isOkfMarkdownExportEnabled } = require('./intelligence/intelligenceFlags');
       if (!isOkfMarkdownExportEnabled()) return { success: false, error: 'okf_markdown_export_disabled' };
       const { KnowledgeManager } = require('./services/knowledge/KnowledgeManager');
@@ -19653,7 +19767,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   safeHandle('knowledge:edit-card', async (_, params: { cardId: string; title?: string; body?: string; entities?: string[]; tags?: string[] }) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { isOkfUserEditableCardsEnabled } = require('./intelligence/intelligenceFlags');
       if (!isOkfUserEditableCardsEnabled()) return { success: false, error: 'okf_user_editable_cards_disabled' };
       const { editCard } = require('./services/knowledge/OkfCardEditor');
@@ -19667,7 +19781,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   safeHandle('knowledge:approve-card', async (_, cardId: string) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { isOkfUserEditableCardsEnabled } = require('./intelligence/intelligenceFlags');
       if (!isOkfUserEditableCardsEnabled()) return { success: false, error: 'okf_user_editable_cards_disabled' };
       const { approveCard } = require('./services/knowledge/OkfCardEditor');
@@ -19681,7 +19795,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   safeHandle('knowledge:reject-card', async (_, cardId: string) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { isOkfUserEditableCardsEnabled } = require('./intelligence/intelligenceFlags');
       if (!isOkfUserEditableCardsEnabled()) return { success: false, error: 'okf_user_editable_cards_disabled' };
       const { rejectCard } = require('./services/knowledge/OkfCardEditor');
@@ -19695,7 +19809,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   safeHandle('knowledge:restore-card-version', async (_, params: { cardId: string; versionId: string }) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { isOkfUserEditableCardsEnabled } = require('./intelligence/intelligenceFlags');
       if (!isOkfUserEditableCardsEnabled()) return { success: false, error: 'okf_user_editable_cards_disabled' };
       const { restoreCardVersion } = require('./services/knowledge/OkfCardEditor');
@@ -19884,7 +19998,7 @@ export function initializeIpcHandlers(appState: AppState): void {
     'modes:add-note-section',
     async (_, modeId: string, title: string, description: string) => {
       try {
-        if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+        if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
         const { ModesManager } = require('./services/ModesManager');
         const section = ModesManager.getInstance().addNoteSection({ modeId, title, description });
         return { success: true, section };
@@ -19899,7 +20013,7 @@ export function initializeIpcHandlers(appState: AppState): void {
     'modes:update-note-section',
     async (_, id: string, updates: { title?: string; description?: string }) => {
       try {
-        if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+        if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
         const { ModesManager } = require('./services/ModesManager');
         ModesManager.getInstance().updateNoteSection(id, updates);
         return { success: true };
@@ -19912,7 +20026,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   safeHandle('modes:delete-note-section', async (_, id: string) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { ModesManager } = require('./services/ModesManager');
       ModesManager.getInstance().deleteNoteSection(id);
       return { success: true };
@@ -19926,7 +20040,7 @@ export function initializeIpcHandlers(appState: AppState): void {
   // Notes template › Use a template). Same Pro gate as editing a section.
   safeHandle('modes:apply-note-template', async (_, modeId: string, templateId: string) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { noteTemplateById, MODE_DEFAULT_NOTE_TEMPLATE_ID } = require('./services/meeting/noteTemplates') as typeof import('./services/meeting/noteTemplates');
       const toDefault = templateId === MODE_DEFAULT_NOTE_TEMPLATE_ID;
       const template = toDefault ? null : noteTemplateById(templateId);
@@ -19956,7 +20070,7 @@ export function initializeIpcHandlers(appState: AppState): void {
 
   safeHandle('modes:remove-all-note-sections', async (_, modeId: string) => {
     try {
-      if (!isProOrTrialActive()) return { success: false, error: 'pro_required' };
+      if (!denyUnlessModesMutation('write')) return { success: false, error: 'pro_required' };
       const { ModesManager } = require('./services/ModesManager');
       ModesManager.getInstance().removeAllNoteSections(modeId);
       return { success: true };

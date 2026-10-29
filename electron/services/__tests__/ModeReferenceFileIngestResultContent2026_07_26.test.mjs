@@ -35,8 +35,13 @@ const ingestionSrc = fs.readFileSync(
   path.resolve(__dirname, '../ModeReferenceFileIngestion.ts'),
   'utf8',
 );
+// 2026-10-30: the panel moved out of the premium submodule into src/, and its
+// reference-file row no longer renders the content length at all (it shows the
+// file name, the index status and the chunk count). The invariant this guards is
+// therefore "no unguarded dereference of file.content", not the exact
+// optional-chaining expression the old render site used.
 const modesSettingsSrc = fs.readFileSync(
-  path.resolve(repoRoot, 'premium/src/ModesSettings.tsx'),
+  path.resolve(repoRoot, 'src/components/modes/ModeDetail.tsx'),
   'utf8',
 );
 
@@ -57,8 +62,11 @@ describe('ModeReferenceFileIngestResult includes content (the actual bug)', () =
 });
 
 describe('ModesSettings.tsx render site is defensive even if a future backend regression omits content again', () => {
-  test('file.content.length is accessed with optional chaining + a numeric fallback, not a bare unguarded access', () => {
-    assert.doesNotMatch(modesSettingsSrc, /\(file\.content\.length \/ 1000\)/, 'the old unguarded access must be gone');
-    assert.match(modesSettingsSrc, /\(\(file\.content\?\.length \?\? 0\) \/ 1000\)/, 'must guard with optional chaining + a numeric fallback so a missing content field can never crash the render');
+  test('the file row never dereferences file.content unguarded', () => {
+    assert.doesNotMatch(modesSettingsSrc, /file\.content\./, 'a bare file.content.<prop> access is the crash class this pins');
+    // The row deliberately shows name + index status + chunk count, so the size
+    // is not part of it at all — the panel cannot regress into that crash.
+    assert.doesNotMatch(modesSettingsSrc, /content\.length/, 'the row must not compute anything from the file content');
+    assert.match(modesSettingsSrc, /file\.fileName/, 'the row still lists the file it uploaded');
   });
 });

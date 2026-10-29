@@ -9,113 +9,67 @@ diagnosis.
 
 ---
 
-## 1. Modes 切换界面（Modes Manager UI）
+## 1. Modes 界面（Modes Manager UI）— 已完成 2026-10-30
 
-**Status:** blocked on the private `premium/` submodule. Backend is complete.
+**Status:** 完成。面板已从 premium 转发改为本仓库实现，后端未改（本来就完整）。
 
-### What exists (source-available, working today)
+### 交付内容
 
-| File | Role |
+| 文件 | 角色 |
 | --- | --- |
-| `electron/services/ModesManager.ts` (2033 lines) | CRUD, activation, built-in seeding, `<active_mode_custom_instructions>` prompt assembly (~line 1959/1988) |
-| `electron/services/builtinModes.ts` | 9 built-in templates + the adoption rule (`planBuiltinAdoption`) |
-| `electron/services/modeSourceContract.ts` (812) | per-mode source contract (what a mode may cite) |
-| `electron/services/modes/ModeHybridRetriever.ts` (172 KB) | per-mode hybrid retrieval |
-| `electron/services/modes/semanticChunker.ts`, `DocumentMap.ts`, `rerankPool.ts` | retrieval support |
-| `electron/services/ModeGenerator.ts` (378), `ModeReferenceFileIngestion.ts`, `ModeContextRetriever.ts` | generate-from-brief, reference-file ingestion |
-| `electron/llm/modeProfiles.ts` (188) | mode as a **routing prior** for ambiguous answer types |
-| `electron/llm/customModeExecutionContract.ts` (849), `modeHybridEligibility.ts` | custom-mode execution |
-| `electron/ipcHandlers.ts:18998-19960` | 20+ `modes:*` IPC channels |
+| `src/components/settings/ModesSettings.tsx` | 面板主体：列表 + 详情 + 新建 + 本地解锁开关 |
+| `src/components/modes/ModeList.tsx` | 模式列表（内置在前、按模板排序；切换不重排） |
+| `src/components/modes/ModeDetail.tsx` | 名称 / 自定义指令 / 笔记模板 / 引用文件 / 回答策略 |
+| `src/components/modes/NewModeDialog.tsx` | 模板画廊 + “描述生成” |
+| `src/components/modes/modesCatalog.ts` | 纯数据：TemplateType、blurb、placeholder、排序与选择逻辑 |
+| `electron/utils/modesAccess.ts` | 授权判定的纯函数（licence / local / none） |
 
-Built-in templates: `general`, `sales`, `recruiting`, `team-meet`,
-`looking-for-work`, `technical-interview`, `lecture`, `seminar`,
-`call-center`.
+主进程新增 4 个通道：`modes:get-template-catalog`（模板列表 + 各模板默认笔记分区）、
+`modes:list-note-templates`、`modes:get-mutation-access`、`modes:set-local-unlock`。
+前三个只读、永不加锁；最后一个**故意不加锁**，否则面板无法自我解锁。
 
-Verified against the local profile database (`~/Library/Application Support/natively/natively.db`,
-`modes` table): all 9 built-ins are already seeded, `mode_general_default` is the
-active row, plus one reserved `__profile_okf__` row for Profile Intelligence.
+### 授权边界（没有偷偷放开）
 
-### What is missing
+19 处 `modes:*` 写操作从 `isProOrTrialActive()` 改为 `denyUnlessModesMutation()`：
 
-1. **The UI.** `src/components/settings/ModesSettings.tsx` is an 11-line
-   forwarding stub:
+- 有授权/试用 → 放行（`via: 'licence'`，不额外打日志）
+- 无授权但有 `localModesUnlocked: true` → 放行并**每次都记一条**
+  `[Modes] <action> allowed by localModesUnlocked (no licence, no trial)`
+- 都没有 → `pro_required`
 
-   ```ts
-   export { ModesSettings as default } from '../../premium';
-   ```
+`localModesUnlocked` 默认不存在（= false），只能由面板上的“在本机解锁”显式打开，
+作用范围仅限 `modes:*`，其它任何功能都不读它。
 
-   The real component is `premium/src/ModesSettings.tsx`, which does not exist in
-   this checkout. `src/premium/index.tsx:91` therefore falls back to
-   `NullComponent`.
+### 与 premium 版的差异
 
-   Consequence: the launcher's grid button
-   (`src/components/Launcher.tsx:788`, `data-testid="open-modes-manager"`) opens
-   the 820×600 manager shell (`src/App.tsx:1466-1512`, `GenomeModal`,
-   `data-testid="manager-panel-modes"`) and renders an **empty card**. The user
-   has already dismissed the onboarding pill (`seenModesOnboarding: true` in
-   `settings.json`), so this is the state they hit.
+- **模板/分区不再在渲染层复制**：premium 版手抄了一份 `TEMPLATES` /
+  `TEMPLATE_DEFAULTS` / placeholder，Seminar 与 Call Center 因此两个版本都没进画廊
+  （见 `ModeTemplateGalleryCoverage2026_09_16`）。现在画廊由后端目录驱动，
+  新增内置模板不需要改渲染层；该测试已改指向 `src/components/modes/modesCatalog.ts`
+  并新增“渲染层不得复制可播种分区”的断言。
+- **模板创建后不可改**：内置模板的 templateType 后端本就锁定；自定义模式改模板需要
+  重算 source contract，因此面板只展示不编辑。
+- 无原生 `<select>` / `window.confirm`：用 `AipSelect` 与 `useConfirmDialog`
+  （原生弹窗不受 Content Protection 保护，会出现在共享屏幕里）。
 
-2. **The licence predicate.** `isProOrTrialActive()` (`electron/ipcHandlers.ts:1044`)
-   starts with `require('../premium/electron/services/LicenseManager')`, which
-   resolves to the absent `premium/` directory, throws, and is swallowed by the
-   `catch`. Only the free-trial token path can return true. So in a
-   source-available build:
+### 验证
 
-   - `modes:set-active` refuses every non-`general` mode with `pro_required`
-     (`electron/ipcHandlers.ts:19314`).
-   - `modes:create`, `modes:delete`, `modes:update`,
-     `modes:upload-reference-file`, `modes:apply-note-template`,
-     `modes:add/update/delete-note-section`, `modes:remove-all-note-sections`
-     are all gated the same way.
+- `ELECTRON_RUN_AS_NODE=1 npx electron --test "electron/services/__tests__/Mode*.test.mjs"`
+  → 433/433（原先 2 个读 `premium/src/ModesSettings.tsx` 的失败已修）
+- `electron/utils` 541/541（含 8 个授权门测试）、`test:lib` 2917/2902、
+  `test:components` 792/776、`test:scripts` 313/312，均 0 失败
+- 真实应用点击穿透（dev 实例 + CDP）：启动器网格按钮 → 面板挂载 → 9 个内置模式 →
+  锁定时只读并显示解锁条 → 解锁后新建 Lecture（自动播 8 个分区）→ 删除 → 关闭解锁
+  恢复只读；DB 中 General 仍为 active，无残留
+- 构建产物层面复核：`ModesManager` 在临时 profile 上 create/update/note-section/
+  activate/source-contract/delete 全通过，`localModesUnlocked` 正确落盘到 settings.json
 
-   `modes:get-all`, `modes:get-active`, `modes:get-source-contract`,
-   `modes:get-reference-files`, `modes:get-note-sections` are **not** gated.
+### 仍需人工确认
 
-### Decision needed before implementing
-
-Do not silently weaken the licence gate — it is a commercial boundary, not a bug.
-Pick one:
-
-- **A.** Restore the submodule and ship the premium panel (correct, needs repo
-  access; `git submodule update --init` currently fails with *repository not
-  found* for both `natively-premium.git` and `natively-api.git`).
-- **B.** Write a source-available Modes panel against the existing IPC, plus an
-  explicit local unlock (e.g. `localModesUnlocked` in `settings.json`) that a
-  developer opts into. The gate stays in place for everyone else.
-- **C.** Ship switching only (no management): a dropdown of the 9 built-ins on
-  the launcher button. Non-Pro entries render locked, pointing at the plans tab
-  — the same pattern `notesTemplateGate.ts` already uses for "Regenerate as".
-
-**Recommended:** C + the opt-in local unlock from B. Smallest surface, keeps the
-gate honest, immediately testable.
-
-### Where to wire it
-
-- `src/components/settings/ModesSettings.tsx` — replace the premium forward with
-  the real component, or keep the forward and add a source-available fallback.
-- `src/App.tsx:1504` — the `activeManagerPanel === 'modes'` branch is the mount
-  point; it already passes `isPremium`, `isLoaded`, `isTrialActive`,
-  `onOpenNativelyAPI`.
-- `src/types/electron.d.ts:503-540` — the full typed IPC surface already exists
-  (`modesGetAll`, `modesSetActive`, `modesCreate`, `modesUpdate`,
-  `modesGetSourceContract`, `modesGetNoteSections`, …). No preload work needed.
-- `NativelyInterface.tsx:2245` already renders the **active mode name badge** and
-  subscribes to `onModeChanged` (which also cancels in-flight chat streams on a
-  switch). So the read side of a switcher is already in place.
-
-### Testing notes
-
-- `npm run test:modes` / `test:modes:no-build` run
-  `electron/services/__tests__/Mode*.test.mjs`,
-  `ProfileIntelligenceGate.test.mjs`, `NativelyApiE2E.test.mjs`.
-- `electron/intelligence/__tests__/baseline/ModeBoundaryBaseline.test.mjs` pins
-  the mode→answer-type boundary.
-- `electron/llm/__tests__/ModeProfiles.test.mjs` and
-  `ModePolicyShadowDivergence2026_07_26.test.mjs` cover the routing prior.
-- GUI click-through requires the launcher window; `agent-browser` is not
-  installed in this environment, so verification was programmatic only.
-
----
+- 打包版 `.app` 里的实际点击（本环境无 agent-browser，dev 实例最后两次启动卡在
+  早期引导，未能复现点击流程）
+- Windows 上的渲染与 IPC（仅单测覆盖，未实机）
+- 引用文件上传（`modes:upload-reference-file` 会开系统文件选择框，未在 GUI 中试过）
 
 ## 2. 中文（zh）i18n 剩余项
 

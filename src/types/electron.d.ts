@@ -502,6 +502,14 @@ export interface ElectronAPI {
   // Modes
   modesGetAll: () => Promise<Array<{ id: string; name: string; templateType: string; customContext: string; isActive: boolean; createdAt: string; referenceFileCount: number }>>
   modesGetActive: () => Promise<{ id: string; name: string; templateType: string; customContext: string; isActive: boolean; createdAt: string } | null>
+  /** Template gallery + each template's seeded note sections (source of truth: the backend). */
+  modesGetTemplateCatalog: () => Promise<{ success: boolean; templates: Array<{ type: string; label: string; sections: Array<{ title: string; description: string }> }>; error?: string }>
+  /** The meeting note-template gallery, for "Use a template" on a mode's notes. */
+  modesListNoteTemplates: () => Promise<{ success: boolean; defaultId: string | null; templates: Array<{ id: string; name: string; group: string; sections: Array<{ title: string; description: string }> }>; error?: string }>
+  /** Whether modes may be mutated on this build, and why. Read-only, never gated. */
+  modesGetMutationAccess: () => Promise<{ licenceActive: boolean; localUnlocked: boolean; allowed: boolean; via: 'licence' | 'local' | 'none' }>
+  /** The default-off local opt-in for a self-built copy (persisted as localModesUnlocked). */
+  modesSetLocalUnlock: (enabled: boolean) => Promise<{ success: boolean; licenceActive: boolean; localUnlocked: boolean; allowed: boolean; via: 'licence' | 'local' | 'none'; error?: string }>
   modesCreate: (params: { name: string; templateType: string }) => Promise<{ success: boolean; mode?: any; error?: string }>
   modesGenerateFromBrief: (params: { brief: string; requiresGrounding?: boolean; templateHint?: string; key?: string; persist?: boolean }) => Promise<{ success: boolean; mode?: any; draft?: any; attempts?: number; issues?: any[]; persisted?: boolean; error?: string }>
   e2eInvoke: (channel: string, ...args: any[]) => Promise<any>

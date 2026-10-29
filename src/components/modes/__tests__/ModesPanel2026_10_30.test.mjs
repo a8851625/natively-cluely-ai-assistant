@@ -10,7 +10,7 @@
 //     seen (the backend is the source of truth for which templates exist);
 //   * that the panel reads the authoritative access state over IPC instead of
 //     trusting the isPremium prop it is handed, and that a locked build renders
-//     read-only plus the opt-in,
+//     read-only without offering a way past its own gate,
 //   * and that every mutating call goes through preload (no direct ipc).
 
 import { test, describe } from 'node:test';
@@ -25,7 +25,8 @@ const read = (p) => fs.readFileSync(path.resolve(repoRoot, p), 'utf8');
 
 const load = async (rel) => import(pathToFileURL(path.join(repoRoot, rel)).href);
 
-const { modesMutationAccess, LOCAL_MODES_UNLOCK_SETTING } = await load('electron/utils/modesAccess.ts');
+const { modesMutationAccess, resolveLocalModesUnlock, LOCAL_MODES_UNLOCK_SETTING } =
+    await load('electron/utils/modesAccess.ts');
 const catalog = await load('src/components/modes/modesCatalog.ts');
 
 describe('modesMutationAccess: licence, local opt-in, or nothing', () => {
@@ -55,6 +56,30 @@ describe('modesMutationAccess: licence, local opt-in, or nothing', () => {
             modesMutationAccess({ licenceActive: false, localUnlocked: false }),
             { allowed: false, via: 'none' },
         );
+    });
+
+    // The default matters more than the matrix. A build with no premium module has
+    // no licence to obtain and no LicenseManager to ask, so the pro_required branch
+    // can never be satisfied there: gating would leave a feature that is already on
+    // disk permanently unreachable. A build that DOES ship premium keeps the rule,
+    // otherwise every real user would get the feature for free.
+    test('no premium module in the build → always editable', () => {
+        assert.equal(resolveLocalModesUnlock({ stored: undefined, premiumAvailable: false }), true);
+        // A stored `false` must NOT re-lock it: with no premium module there is no
+        // licence to obtain, so "off" would only recreate a permanently dead
+        // feature — the exact complaint that produced this rule.
+        assert.equal(resolveLocalModesUnlock({ stored: false, premiumAvailable: false }), true);
+    });
+
+    test('premium shipped but unlicensed → locked, exactly as before', () => {
+        assert.equal(resolveLocalModesUnlock({ stored: undefined, premiumAvailable: true }), false);
+        // Junk in the file must not silently unlock anything either.
+        assert.equal(resolveLocalModesUnlock({ stored: 'yes', premiumAvailable: true }), false);
+        assert.equal(resolveLocalModesUnlock({ stored: null, premiumAvailable: true }), false);
+    });
+
+    test('the stored opt-in is the escape hatch for a self-built premium copy', () => {
+        assert.equal(resolveLocalModesUnlock({ stored: true, premiumAvailable: true }), true);
     });
 
     test('the setting key is spelled once', () => {
@@ -183,13 +208,24 @@ describe('ModesSettings panel wiring', () => {
         assert.ok(!/const\s+canEdit\s*=\s*isPremium/.test(panel), 'a licence prop must not be the edit gate');
     });
 
-    test('a locked build renders read-only and offers the local opt-in', () => {
+    test('a locked build renders read-only and does not offer a way past its own gate', () => {
         assert.ok(panel.includes("kind === 'locked'"), 'the locked state must be rendered, not hidden');
-        assert.ok(panel.includes('setLocalUnlock(true)'), 'the opt-in button must be wired');
-        assert.ok(panel.includes('window.electronAPI?.modesSetLocalUnlock?.(enabled)'), 'and it must persist through preload');
-        assert.ok(panel.includes('modes-open-plans'), 'and the licence path is offered alongside it');
+        assert.ok(panel.includes('modes-open-plans'), 'the licence path is offered');
         assert.ok(detail.includes('disabled={!canEdit}'), 'every mutating control must be disabled when locked');
         assert.ok(detail.includes('Read-only until modes are unlocked on this build.'));
+        // A build that ships the premium module must not hand out a free unlock
+        // button; the opt-in lives in settings.json for a self-built copy only.
+        assert.ok(!panel.includes('modesSetLocalUnlock'), 'no local-unlock button in a premium build');
+        assert.ok(!panel.includes('modes-enable-local'), 'no local-unlock button in a premium build');
+    });
+
+    test('a build with no premium module shows no licence chrome at all', () => {
+        // The whole complaint this fixes: a locally built copy said "editing modes
+        // is a Pro feature and no licence or trial is active here" about a feature
+        // that is compiled into the same binary, with no way to ever satisfy it.
+        assert.ok(!panel.includes('modes-local-strip'), 'no "unlocked" banner either — nothing to announce');
+        assert.ok(!panel.includes('modes-disable-local'), 'and nothing to switch off');
+        assert.ok(panel.includes("kind === 'locked'"), 'the locked branch still exists for premium builds');
     });
 
     test('every mutation goes through preload, and the list is refreshed after one', () => {

@@ -37,7 +37,13 @@ import { BrowserMetadataClassifierService } from './services/browser-context/Bro
 import { autoContextVerdict, buildAutoContextRequest, codingAutoAttachEnabled } from './services/browser-context/autoContextRequest';
 import type { SafeWebsiteMetadata } from './services/browser-context/types';
 import { SettingsManager } from './services/SettingsManager';
-import { modesMutationAccess, LOCAL_MODES_UNLOCK_SETTING, type ModesAccess } from './utils/modesAccess';
+import {
+  modesMutationAccess,
+  resolveLocalModesUnlock,
+  LOCAL_MODES_UNLOCK_SETTING,
+  type ModesAccess,
+} from './utils/modesAccess';
+import { isPremiumAvailable } from './premium/featureGate';
 import { RERANK_CANDIDATE_POOL, resolveRerankPoolSize } from './services/modes/rerankPool';
 import { buildRerankProbe } from './services/reranking/rerankProbe';
 import { ProviderStatusRegistry } from './services/ProviderStatusRegistry';
@@ -1072,15 +1078,23 @@ export function initializeIpcHandlers(appState: AppState): void {
   // require() throws straight into the catch. The consequence was that the whole
   // Modes backend shipped here but not one non-general mode could be activated.
   //
-  // `localModesUnlocked` is an explicit, default-OFF opt-in for a locally built
-  // or self-hosted copy, switched on by hand from the Modes panel. It is
-  // deliberately NOT a licence bypass by accident: it only widens the modes:*
-  // surface (nothing else in the app reads it), it must be turned on explicitly,
-  // and every gated action it allows is logged as such so the difference between
-  // "licensed" and "locally unlocked" stays visible in the log.
+  // `localModesUnlocked` answers that. It is NOT a licence bypass: it only widens
+  // the modes:* surface (nothing else in the app reads it), and every action it
+  // allows is logged as such so "licensed" and "locally unlocked" stay
+  // distinguishable from the log alone.
+  //
+  // Its DEFAULT depends on the build (see resolveLocalModesUnlock): a build with
+  // no premium module has no licence to obtain and no LicenseManager to ask, so
+  // the pro_required branch can never be satisfied and the feature would just be
+  // permanently dead — those builds default to unlocked. A build that does
+  // contain the premium module keeps the shipped rule and stays locked unless
+  // licensed/trial. An explicit stored value wins either way.
   const isLocalModesUnlocked = (): boolean => {
     try {
-      return (SettingsManager.getInstance() as any).get(LOCAL_MODES_UNLOCK_SETTING) === true;
+      return resolveLocalModesUnlock({
+        stored: (SettingsManager.getInstance() as any).get(LOCAL_MODES_UNLOCK_SETTING),
+        premiumAvailable: isPremiumAvailable(),
+      });
     } catch {
       return false;
     }

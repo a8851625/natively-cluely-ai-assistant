@@ -140,17 +140,6 @@ export const ModesSettings: React.FC<ModesSettingsProps> = ({ onClose, onOpenNat
         await reload();
     }, [modes, reload]);
 
-    // ── the local unlock opt-in ───────────────────────────────────────────
-    const setLocalUnlock = useCallback(async (enabled: boolean) => {
-        const res = await window.electronAPI?.modesSetLocalUnlock?.(enabled);
-        if (!res?.success) {
-            pushNotice(String(res?.error ?? t('Could not change the local unlock.')), 'error');
-            return;
-        }
-        setAccess({ licenceActive: res.licenceActive, localUnlocked: res.localUnlocked, allowed: res.allowed, via: res.via });
-        pushNotice(enabled ? t('Local unlock is on. Modes can be edited on this machine.') : t('Local unlock is off.'), 'ok');
-    }, [pushNotice, t]);
-
     const kind = accessKind(access);
 
     // `aip-root` on the tree below is required, not decoration: AIP_CSS scopes its
@@ -168,11 +157,6 @@ export const ModesSettings: React.FC<ModesSettingsProps> = ({ onClose, onOpenNat
                     </p>
                 </div>
                 <div className="flex shrink-0 items-center gap-2">
-                    {kind === 'local' && (
-                        <span className="rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-600" data-testid="modes-badge-local">
-                            {t('Local unlock')}
-                        </span>
-                    )}
                     {kind === 'licence' && (
                         <span className="rounded-full bg-emerald-500/10 px-2.5 py-1 text-[11px] font-medium text-emerald-600" data-testid="modes-badge-licence">
                             {t('Pro')}
@@ -201,16 +185,8 @@ export const ModesSettings: React.FC<ModesSettingsProps> = ({ onClose, onOpenNat
                         <p className="text-[11px] leading-relaxed text-text-secondary">
                             {t('Modes are read-only on this build: editing them is a Pro feature and no licence or trial is active here.')}
                         </p>
-                        <div className="mt-1.5 flex items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={() => void setLocalUnlock(true)}
-                                data-testid="modes-enable-local"
-                                className="text-[11px] font-medium text-amber-700 underline decoration-dotted hover:text-amber-800"
-                            >
-                                {t('Unlock locally on this machine')}
-                            </button>
-                            {onOpenNativelyAPI && (
+                        {onOpenNativelyAPI && (
+                            <div className="mt-1.5">
                                 <button
                                     type="button"
                                     onClick={onOpenNativelyAPI}
@@ -219,30 +195,12 @@ export const ModesSettings: React.FC<ModesSettingsProps> = ({ onClose, onOpenNat
                                 >
                                     {t('See plans')}
                                 </button>
-                            )}
-                        </div>
-                        <p className="mt-1 text-[10px] leading-relaxed text-text-tertiary">
-                            {t('Local unlock is for a build you compiled yourself. It changes nothing for anyone else.')}
-                        </p>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
 
-            {kind === 'local' && (
-                <div className="mb-3 flex items-center justify-between gap-2 rounded-xl border border-border-subtle px-3 py-1.5" data-testid="modes-local-strip">
-                    <p className="text-[11px] text-text-tertiary">
-                        {t('Editable through the local unlock on this machine.')}
-                    </p>
-                    <button
-                        type="button"
-                        onClick={() => void setLocalUnlock(false)}
-                        data-testid="modes-disable-local"
-                        className="shrink-0 text-[11px] text-text-tertiary underline decoration-dotted hover:text-text-primary"
-                    >
-                        {t('Turn off')}
-                    </button>
-                </div>
-            )}
 
             {/* Body */}
             <div className="grid min-h-0 flex-1 grid-cols-[220px_1fr] gap-4">

@@ -449,4 +449,5 @@ export const ZH_GENERATED3: Record<string, string> = {
     "Delete mode": "删除模式",
     "Custom instructions": "自定义指令",
     "Reference files": "引用文件",
+  "Editing is enabled on this machine.": "本机已可编辑模式。",
 };

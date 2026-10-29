@@ -28,17 +28,30 @@ diagnosis.
 `modes:list-note-templates`、`modes:get-mutation-access`、`modes:set-local-unlock`。
 前三个只读、永不加锁；最后一个**故意不加锁**，否则面板无法自我解锁。
 
-### 授权边界（没有偷偷放开）
+### 授权边界
 
-19 处 `modes:*` 写操作从 `isProOrTrialActive()` 改为 `denyUnlessModesMutation()`：
+判定集中在一个纯函数里（`electron/utils/modesAccess.ts` → `resolveLocalModesUnlock`
++ `modesMutationAccess`），由 `isPremiumAvailable()`（`electron/premium/featureGate.ts`，
+探测 premium/ 是否在包里）决定默认值：
 
-- 有授权/试用 → 放行（`via: 'licence'`，不额外打日志）
-- 无授权但有 `localModesUnlocked: true` → 放行并**每次都记一条**
-  `[Modes] <action> allowed by localModesUnlocked (no licence, no trial)`
-- 都没有 → `pro_required`
+| 这个包里有没有 premium 模块 | 模式编辑 | 界面 |
+| --- | --- | --- |
+| **没有**（源码构建 / 本机自建） | **始终可编辑** | 完全不显示任何授权文案 |
+| 有，且已授权/试用中 | 可编辑 | 只显示一个 `Pro` 标记 |
+| 有，但没有授权 | 只读 | 提示"编辑模式属于 Pro 功能" + 查看方案 |
 
-`localModesUnlocked` 默认不存在（= false），只能由面板上的“在本机解锁”显式打开，
-作用范围仅限 `modes:*`，其它任何功能都不读它。
+关键点是第一行：没有 premium 模块时 `pro_required` 分支**永远不可能被满足**——没有东西可买，
+`isProOrTrialActive()` 里那个 `LicenseManager` 的 require 只会抛进 catch。这时候把已经编进
+二进制里的模式引擎锁起来，等于交付一个永久不可达的功能。所以这种构建默认解锁，而且**存了
+`localModesUnlocked: false` 也不会被锁回去**（否则"关掉"只是重新制造死功能）。
+
+反过来，**带 premium 模块的构建保持原规则**（未授权即只读），并且面板里**不提供**"在本机解锁"
+按钮——真实用户的包里不能放一个免费解锁自家付费功能的开关。`localModesUnlocked` 只作为自建
+premium 副本的手动逃生口，写在 settings.json 里，文档里有，界面上没有。
+
+19 处 `modes:*` 写操作都走 `denyUnlessModesMutation()`；`local` 路径每次放行都会记
+`[Modes] <action> allowed by localModesUnlocked (no licence, no trial)`。`modes:set-local-unlock`
+故意不加锁（否则门永远打不开），但它不在渲染层暴露。
 
 ### 与 premium 版的差异
 
@@ -59,8 +72,11 @@ diagnosis.
 - `electron/utils` 541/541（含 8 个授权门测试）、`test:lib` 2917/2902、
   `test:components` 792/776、`test:scripts` 313/312，均 0 失败
 - 真实应用点击穿透（dev 实例 + CDP）：启动器网格按钮 → 面板挂载 → 9 个内置模式 →
-  锁定时只读并显示解锁条 → 解锁后新建 Lecture（自动播 8 个分区）→ 删除 → 关闭解锁
-  恢复只读；DB 中 General 仍为 active，无残留
+  面板内**没有任何"Pro / 授权 / 试用 / 订阅"字样** → 直接新建 Lecture（自动播 8 个分区）
+  → 删除回到 9 个；DB 中 General 仍为 active，无残留
+- 打包产物层面复核：`isPremiumAvailable()=false` → `resolveLocalModesUnlock` 即使读到
+  `localModesUnlocked: false` 也返回 true → `modesMutationAccess` 给出
+  `{allowed:true, via:'local'}`
 - 构建产物层面复核：`ModesManager` 在临时 profile 上 create/update/note-section/
   activate/source-contract/delete 全通过，`localModesUnlocked` 正确落盘到 settings.json
 

@@ -22,7 +22,7 @@ const GENERAL_TRIGGERS: ActionTrigger[] = [
         priority: 0.82,
         label: 'Suggest response',
         promptInstruction:
-            'You are in General mode. The user needs help responding. Provide a concise, context-aware answer they can say out loud.',
+            'The user needs help responding. Provide a concise, context-aware answer they can say out loud.',
         answerStyle: { maxWords: 100, format: 'short_script', tone: 'helpful' },
     },
     {
@@ -31,7 +31,7 @@ const GENERAL_TRIGGERS: ActionTrigger[] = [
         priority: 0.78,
         label: 'Summarize discussion',
         promptInstruction:
-            'You are in General mode. Summarize the relevant discussion into the fewest useful bullets.',
+            'Summarize the relevant discussion into the fewest useful bullets.',
         answerStyle: { maxWords: 90, format: 'bullets', tone: 'neutral' },
     },
     {
@@ -40,19 +40,23 @@ const GENERAL_TRIGGERS: ActionTrigger[] = [
         priority: 0.76,
         label: 'Explain clearly',
         promptInstruction:
-            'You are in General mode. Explain the current topic plainly and avoid inventing details not present in context.',
+            'Explain the current topic plainly and avoid inventing details not present in context.',
         answerStyle: { maxWords: 120, format: 'bullets', tone: 'clear' },
     },
 ];
 
-const NEGOTIATION_TRIGGERS: ActionTrigger[] = [
+// No template type maps here: ModeTemplateType has no 'negotiation' mode, so
+// these three presets never fire (the old `negotiation:` key was unreachable
+// for the same reason as the candidate packs). Kept exported so a real
+// negotiation mode — or a sales-mode opt-in — can adopt them intact.
+export const NEGOTIATION_TRIGGERS: ActionTrigger[] = [
     {
         type: 'budget_probe',
         patterns: [/\b(what'?s your budget|budget range|target price|price range|how much can you spend)\b/i],
         priority: 0.88,
         label: 'Handle budget probe',
         promptInstruction:
-            'You are in Negotiation mode. Respond to a budget probe without anchoring too low. Ask a calibrated question and protect leverage.',
+            'Respond to a budget probe without anchoring too low. Ask a calibrated question and protect leverage.',
         answerStyle: { maxWords: 90, format: 'short_script', tone: 'calm' },
     },
     {
@@ -61,7 +65,7 @@ const NEGOTIATION_TRIGGERS: ActionTrigger[] = [
         priority: 0.9,
         label: 'Counter price pushback',
         promptInstruction:
-            'You are in Negotiation mode. The other side is pushing on price. Defend value, trade concessions for commitments, and avoid unilateral discounting.',
+            'The other side is pushing on price. Defend value, trade concessions for commitments, and avoid unilateral discounting.',
         answerStyle: { maxWords: 100, format: 'short_script', tone: 'firm' },
     },
     {
@@ -70,7 +74,7 @@ const NEGOTIATION_TRIGGERS: ActionTrigger[] = [
         priority: 0.92,
         label: 'Respond to final offer',
         promptInstruction:
-            'You are in Negotiation mode. Respond to a final-offer frame by testing constraints, preserving optionality, and proposing a concrete next move.',
+            'Respond to a final-offer frame by testing constraints, preserving optionality, and proposing a concrete next move.',
         answerStyle: { maxWords: 90, format: 'short_script', tone: 'composed' },
     },
 ];
@@ -83,7 +87,7 @@ const SALES_TRIGGERS: ActionTrigger[] = [
         priority: 0.9,
         label: 'Handle pricing objection',
         promptInstruction:
-            "You are in Sales mode. The prospect has raised a pricing concern. Provide a concise, confident response that addresses value over cost. Include a bridge to next steps.",
+            "The prospect has raised a pricing concern. Provide a concise, confident response that addresses value over cost. Include a bridge to next steps.",
         answerStyle: { maxWords: 80, format: 'bullets', tone: 'confident' },
     },
     {
@@ -92,7 +96,7 @@ const SALES_TRIGGERS: ActionTrigger[] = [
         priority: 0.85,
         label: 'Handle competitor comparison',
         promptInstruction:
-            "You are in Sales mode. The prospect mentioned a competitor. Position Natively's advantages confidently without disparaging the competitor.",
+            "The prospect mentioned a competitor. Position Natively's advantages confidently without disparaging the competitor.",
         answerStyle: { maxWords: 100, format: 'bullets', tone: 'confident' },
     },
     {
@@ -101,7 +105,7 @@ const SALES_TRIGGERS: ActionTrigger[] = [
         priority: 0.95,
         label: 'Seize buying signal',
         promptInstruction:
-            "You are in Sales mode. The prospect is showing strong buying intent. Help finalize the next steps and create urgency.",
+            "The prospect is showing strong buying intent. Help finalize the next steps and create urgency.",
         answerStyle: { maxWords: 60, format: 'short_script', tone: 'enthusiastic' },
     },
     {
@@ -110,7 +114,7 @@ const SALES_TRIGGERS: ActionTrigger[] = [
         priority: 0.88,
         label: 'Build ROI case',
         promptInstruction:
-            'You are in Sales mode. The prospect is asking for ROI. Tie benefits to measurable business outcomes and ask for their success metric.',
+            'The prospect is asking for ROI. Tie benefits to measurable business outcomes and ask for their success metric.',
         answerStyle: { maxWords: 100, format: 'bullets', tone: 'consultative' },
     },
     {
@@ -119,7 +123,7 @@ const SALES_TRIGGERS: ActionTrigger[] = [
         priority: 0.86,
         label: 'Frame pricing request',
         promptInstruction:
-            'You are in Sales mode. The prospect asked for pricing. Qualify scope before giving numbers and propose a concrete follow-up.',
+            'The prospect asked for pricing. Qualify scope before giving numbers and propose a concrete follow-up.',
         answerStyle: { maxWords: 90, format: 'short_script', tone: 'consultative' },
     },
 ];
@@ -132,7 +136,7 @@ const RECRUITING_TRIGGERS: ActionTrigger[] = [
         priority: 0.85,
         label: 'Address candidate concern',
         promptInstruction:
-            'You are in Recruiting mode. The candidate has raised a concern. Address it factually and empathetically.',
+            'The candidate has raised a concern. Address it factually and empathetically.',
         answerStyle: { maxWords: 100, format: 'bullets', tone: 'empathetic' },
     },
     {
@@ -141,7 +145,7 @@ const RECRUITING_TRIGGERS: ActionTrigger[] = [
         priority: 0.9,
         label: 'Reinforce positive signal',
         promptInstruction:
-            "You are in Recruiting mode. The candidate is showing strong interest. Reinforce why this role is a great match.",
+            "The candidate is showing strong interest. Reinforce why this role is a great match.",
         answerStyle: { maxWords: 60, format: 'bullets', tone: 'encouraging' },
     },
     {
@@ -150,7 +154,7 @@ const RECRUITING_TRIGGERS: ActionTrigger[] = [
         priority: 0.84,
         label: 'Guide candidate story',
         promptInstruction:
-            'You are in Recruiting mode. Help assess and guide the candidate response around experience, motivation, and fit.',
+            'Help assess and guide the candidate response around experience, motivation, and fit.',
         answerStyle: { maxWords: 100, format: 'bullets', tone: 'structured' },
     },
 ];
@@ -165,7 +169,7 @@ const TEAM_TRIGGERS: ActionTrigger[] = [
         priority: 0.9,
         label: 'Capture action item',
         promptInstruction:
-            'You are in Team Meeting mode. Extract the action item: who will do what by when.',
+            'Extract the action item: who will do what by when.',
         answerStyle: { maxWords: 50, format: 'bullets', tone: 'direct' },
     },
     {
@@ -173,7 +177,7 @@ const TEAM_TRIGGERS: ActionTrigger[] = [
         patterns: [/\b(decided|going with|let's go|final decision|approved|confirmed)\b/i],
         priority: 0.85,
         label: 'Confirm decision',
-        promptInstruction: 'You are in Team Meeting mode. Summarize the decision that was made.',
+        promptInstruction: 'Summarize the decision that was made.',
         answerStyle: { maxWords: 40, format: 'bullets', tone: 'neutral' },
     },
     {
@@ -182,7 +186,7 @@ const TEAM_TRIGGERS: ActionTrigger[] = [
         priority: 0.84,
         label: 'Clarify blocker',
         promptInstruction:
-            'You are in Team Meeting mode. Identify the blocker, owner, impact, and next unblock step.',
+            'Identify the blocker, owner, impact, and next unblock step.',
         answerStyle: { maxWords: 70, format: 'checklist', tone: 'direct' },
     },
     {
@@ -191,7 +195,7 @@ const TEAM_TRIGGERS: ActionTrigger[] = [
         priority: 0.83,
         label: 'Lock owner and deadline',
         promptInstruction:
-            'You are in Team Meeting mode. Turn the discussion into an explicit owner, deliverable, and deadline.',
+            'Turn the discussion into an explicit owner, deliverable, and deadline.',
         answerStyle: { maxWords: 60, format: 'checklist', tone: 'direct' },
     },
 ];
@@ -206,7 +210,7 @@ const INTERVIEW_TRIGGERS: ActionTrigger[] = [
         priority: 0.9,
         label: 'Answer with STAR story',
         promptInstruction:
-            'You are in Interview mode. The interviewer asked a behavioral question. Structure your answer using the STAR method (Situation, Task, Action, Result) with specific metrics.',
+            'The interviewer asked a behavioral question. Structure your answer using the STAR method (Situation, Task, Action, Result) with specific metrics.',
         answerStyle: { maxWords: 200, format: 'short_script', tone: 'confident' },
     },
     {
@@ -215,7 +219,7 @@ const INTERVIEW_TRIGGERS: ActionTrigger[] = [
         priority: 0.88,
         label: 'Craft intro pitch',
         promptInstruction:
-            'You are in Interview mode. Create a crisp candidate intro that connects background, strengths, and why this role fits.',
+            'Create a crisp candidate intro that connects background, strengths, and why this role fits.',
         answerStyle: { maxWords: 160, format: 'short_script', tone: 'confident' },
     },
     {
@@ -224,7 +228,7 @@ const INTERVIEW_TRIGGERS: ActionTrigger[] = [
         priority: 0.86,
         label: 'Answer company motivation',
         promptInstruction:
-            'You are in Interview mode. Answer why this company using concrete signals from the conversation and avoid generic flattery.',
+            'Answer why this company using concrete signals from the conversation and avoid generic flattery.',
         answerStyle: { maxWords: 140, format: 'short_script', tone: 'authentic' },
     },
     {
@@ -233,7 +237,7 @@ const INTERVIEW_TRIGGERS: ActionTrigger[] = [
         priority: 0.84,
         label: 'Handle weakness question',
         promptInstruction:
-            'You are in Interview mode. Answer the weakness question honestly with a real mitigation and evidence of progress.',
+            'Answer the weakness question honestly with a real mitigation and evidence of progress.',
         answerStyle: { maxWords: 140, format: 'short_script', tone: 'reflective' },
     },
 ];
@@ -246,7 +250,7 @@ const LECTURE_TRIGGERS: ActionTrigger[] = [
         priority: 0.85,
         label: 'Explain concept',
         promptInstruction:
-            'You are in Lecture mode. Explain the concept clearly with a practical example.',
+            'Explain the concept clearly with a practical example.',
         answerStyle: { maxWords: 150, format: 'bullets', tone: 'educational' },
     },
     {
@@ -255,7 +259,7 @@ const LECTURE_TRIGGERS: ActionTrigger[] = [
         priority: 0.82,
         label: 'Create worked example',
         promptInstruction:
-            'You are in Lecture mode. Turn the concept into a worked example with steps and the intuition behind each step.',
+            'Turn the concept into a worked example with steps and the intuition behind each step.',
         answerStyle: { maxWords: 180, format: 'bullets', tone: 'educational' },
     },
 ];
@@ -268,7 +272,7 @@ const TECHNICAL_TRIGGERS: ActionTrigger[] = [
         priority: 0.95,
         label: 'Solve coding problem',
         promptInstruction:
-            'You are in Technical Interview mode. Provide a clear, efficient solution with time/space complexity analysis.',
+            'Provide a clear, efficient solution with time/space complexity analysis.',
         answerStyle: { maxWords: 300, format: 'code', tone: 'analytical' },
     },
     {
@@ -277,7 +281,7 @@ const TECHNICAL_TRIGGERS: ActionTrigger[] = [
         priority: 0.92,
         label: 'Answer from screen',
         promptInstruction:
-            'You are in Technical Interview mode. A coding problem is visible on the screen. Read the visible problem carefully and provide a solution.',
+            'A coding problem is visible on the screen. Read the visible problem carefully and provide a solution.',
     },
     {
         type: 'complexity_analysis',
@@ -285,7 +289,7 @@ const TECHNICAL_TRIGGERS: ActionTrigger[] = [
         priority: 0.9,
         label: 'Analyze complexity',
         promptInstruction:
-            'You are in Technical Interview mode. Explain the complexity tradeoff clearly and suggest the next optimization path.',
+            'Explain the complexity tradeoff clearly and suggest the next optimization path.',
         answerStyle: { maxWords: 180, format: 'bullets', tone: 'analytical' },
     },
     {
@@ -403,21 +407,39 @@ const SYSTEM_DESIGN_OFFER: ActionTrigger = {
     answerStyle: { maxWords: 260, format: 'bullets', tone: 'analytical' },
 };
 
+/** The action bar, per mode. Keys MUST be ModeTemplateType values
+ *  (context-intelligence/policies/mode-policy-registry.ts MODE_IDS) — the
+ *  caller passes `activeMode.templateType`, so any other spelling is a table
+ *  no mode can ever reach, and its presets silently never fire.
+ *
+ *  That is exactly what had happened here (2026-10-30): the candidate packs sat
+ *  under `interview` / `technical_interview` (underscore) and the meeting pack
+ *  under `team_meeting`, none of which is a template id, so 4 of the 9 modes
+ *  offered only drawing cards. The richest candidate presets — STAR story,
+ *  intro pitch, company motivation, weakness question, solve coding problem,
+ *  answer from screen, analyze complexity — were unreachable config.
+ *  ModeTriggersKeyDrift2026_10_30.test.mjs now pins the key space.
+ *
+ *  One `type` per mode: the store suppresses a duplicate type within 120s, so a
+ *  second trigger with the same type would be dead on arrival (that is why the
+ *  system-design ask appears once, using SYSTEM_DESIGN_OFFER's wider patterns).
+ */
 export const MODE_TRIGGERS: Record<string, ActionTrigger[]> = {
     general: [...GENERAL_TRIGGERS, V_WORKFLOW, V_FIGURES, V_SCENARIOS, V_DEPENDENCIES, V_TIMELINE],
-    negotiation: NEGOTIATION_TRIGGERS,
     sales: [...SALES_TRIGGERS, V_WORKFLOW, V_FIGURES, V_SCENARIOS],
     recruiting: [...RECRUITING_TRIGGERS, V_WORKFLOW, V_TIMELINE],
-    team_meeting: TEAM_TRIGGERS,
-    interview: INTERVIEW_TRIGGERS,
+    'team-meet': [...TEAM_TRIGGERS, V_DEPENDENCIES, V_WORKFLOW, V_FIGURES, V_SCENARIOS, V_DATA_MODEL],
+    // The candidate's two modes. Both are the user being asked, so both get the
+    // candidate packs; they differ in what the conversation is about.
+    'looking-for-work': [...INTERVIEW_TRIGGERS, V_TIMELINE],
+    'technical-interview': [
+        ...TECHNICAL_TRIGGERS.filter((t) => t.type !== 'system_design_prompt'),
+        SYSTEM_DESIGN_OFFER,
+        V_DATA_MODEL,
+    ],
     lecture: [...LECTURE_TRIGGERS, V_CONCEPTS, V_PROCESS_STAGES, V_DATA_MODEL],
-    technical_interview: TECHNICAL_TRIGGERS,
-    // Real template ids that had no table (visual offers only).
-    'team-meet': [V_DEPENDENCIES, V_WORKFLOW, V_FIGURES, V_SCENARIOS, V_DATA_MODEL],
-    'call-center': [V_TROUBLESHOOTING, V_WORKFLOW, V_FIGURES],
-    'technical-interview': [SYSTEM_DESIGN_OFFER, V_DATA_MODEL],
-    'looking-for-work': [V_TIMELINE],
     seminar: [V_CONCEPTS, V_PROCESS_STAGES, V_FIGURES],
+    'call-center': [V_TROUBLESHOOTING, V_WORKFLOW, V_FIGURES],
 };
 
 export class DynamicActionDetector {

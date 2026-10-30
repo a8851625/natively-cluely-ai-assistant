@@ -77,7 +77,7 @@ test('Action item pattern detected creates action_item action', async () => {
   const actions = engine.detectActions({
     transcript,
     speaker: 'Team Member',
-    modeTemplateType: 'team_meeting',
+    modeTemplateType: 'team-meet',
     modeId: 'mode_team_1',
     sessionId: 'session_456',
   });
@@ -96,8 +96,8 @@ test('Behavioral question pattern creates STAR action', async () => {
   const actions = engine.detectActions({
     transcript,
     speaker: 'Interviewer',
-    modeTemplateType: 'interview',
-    modeId: 'mode_interview_1',
+    modeTemplateType: 'looking-for-work',
+    modeId: 'mode_lfw_1',
     sessionId: 'session_789',
   });
 
@@ -296,14 +296,14 @@ test('dynamic actions are isolated by session and mode to prevent bleeding', asy
   const interviewActions = engine.detectActions({
     transcript: 'Tell me about a time you led a difficult project.',
     speaker: 'Interviewer',
-    modeTemplateType: 'interview',
-    modeId: 'mode_interview',
+    modeTemplateType: 'looking-for-work',
+    modeId: 'mode_lfw',
     sessionId: 'session_b',
   });
 
   assert.ok(salesActions.some(action => action.type === 'pricing_objection'));
   assert.ok(interviewActions.some(action => action.type === 'behavioral_question'));
-  assert.equal(engine.getTopActions('session_a').some(action => action.modeId === 'mode_interview'), false);
+  assert.equal(engine.getTopActions('session_a').some(action => action.modeId === 'mode_lfw'), false);
   assert.equal(engine.getTopActions('session_b').some(action => action.modeId === 'mode_sales'), false);
 });
 
@@ -314,19 +314,16 @@ test('expanded trigger packs cover canonical Cluely-style phrases across modes',
     ['general', 'Can you help me with what I should say next?', 'general_assistance_request'],
     ['general', 'Summarize this discussion for me.', 'general_summarize'],
     ['general', 'Explain that in simple terms.', 'general_explain'],
-    ['negotiation', "What's your budget range for this deal?", 'budget_probe'],
-    ['negotiation', 'Can you do better on the price?', 'price_pushback'],
-    ['negotiation', 'This is our final offer.', 'final_offer'],
     ['sales', "What's the ROI and payback for this?", 'roi_question'],
     ['sales', 'Can you send me pricing after this call?', 'pricing_request'],
     ['recruiting', 'Tell me about your experience and why this role.', 'candidate_experience_probe'],
-    ['team_meeting', 'Are there any blockers or risks to the timeline?', 'blocker_check'],
-    ['team_meeting', 'Who owns this and by when?', 'owner_deadline_check'],
-    ['interview', 'Tell me about yourself.', 'intro_pitch'],
-    ['interview', 'Why do you want to work here?', 'company_motivation'],
-    ['interview', 'What is your biggest weakness?', 'weakness_question'],
-    ['technical_interview', 'What is the time complexity and can you optimize it?', 'complexity_analysis'],
-    ['technical_interview', 'Design a system that can scale to millions of users.', 'system_design_prompt'],
+    ['team-meet', 'Are there any blockers or risks to the timeline?', 'blocker_check'],
+    ['team-meet', 'Who owns this and by when?', 'owner_deadline_check'],
+    ['looking-for-work', 'Tell me about yourself.', 'intro_pitch'],
+    ['looking-for-work', 'Why do you want to work here?', 'company_motivation'],
+    ['looking-for-work', 'What is your biggest weakness?', 'weakness_question'],
+    ['technical-interview', 'What is the time complexity and can you optimize it?', 'complexity_analysis'],
+    ['technical-interview', 'Design a system that can scale to millions of users.', 'system_design_prompt'],
     ['lecture', 'Define this concept and give the formula.', 'concept_explanation'],
     ['lecture', 'Can you show an example of this theorem?', 'worked_example'],
   ];
@@ -348,7 +345,7 @@ test('expanded trigger packs cover canonical Cluely-style phrases across modes',
   }
 });
 
-test('expanded trigger packs do not bleed between negotiation, sales, and interview modes', async () => {
+test('expanded trigger packs do not bleed between sales, team-meet, and looking-for-work modes', async () => {
   const { DynamicActionEngine } = await loadModules();
   const engine = new DynamicActionEngine();
 
@@ -359,23 +356,25 @@ test('expanded trigger packs do not bleed between negotiation, sales, and interv
     modeId: 'mode_sales',
     sessionId: 'session_sales_isolation',
   });
-  const negotiationModeActions = engine.detectActions({
+  // Was 'negotiation' — a key no mode can pass (there is no negotiation
+  // template), so the isolation it asserted was between two dead tables.
+  const teamModeActions = engine.detectActions({
     transcript: 'What does it cost and can you send me pricing?',
     speaker: 'Counterparty',
-    modeTemplateType: 'negotiation',
-    modeId: 'mode_negotiation',
-    sessionId: 'session_negotiation_isolation',
+    modeTemplateType: 'team-meet',
+    modeId: 'mode_team_isolation',
+    sessionId: 'session_team_isolation',
   });
   const interviewModeActions = engine.detectActions({
     transcript: 'Tell me about your experience and why this role.',
     speaker: 'Recruiter',
-    modeTemplateType: 'interview',
-    modeId: 'mode_interview',
+    modeTemplateType: 'looking-for-work',
+    modeId: 'mode_lfw',
     sessionId: 'session_interview_isolation',
   });
 
   assert.equal(salesModeActions.some(action => action.type === 'final_offer'), false);
-  assert.equal(negotiationModeActions.some(action => action.type === 'pricing_request'), false);
+  assert.equal(teamModeActions.some(action => action.type === 'pricing_request'), false);
   assert.equal(interviewModeActions.some(action => action.type === 'candidate_experience_probe'), false);
 });
 

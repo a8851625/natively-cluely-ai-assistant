@@ -4738,6 +4738,12 @@ export class AppState {
   ): Promise<void> {
     this._systemAudioZeroFillRecoveryInFlight = true;
     const silentForSec = Math.round(silentForMs / 1000);
+    // The 'mac-deaf-system-tap' notices below are macOS-only: they describe a
+    // Core Audio Process Tap that started and then only ever saw silence, which
+    // is a CoreAudio constraint (`formatPermissionMessage` falls back to the
+    // generic 'system-audio-stuck' copy off darwin). Windows WASAPI loopback has
+    // no equivalent state, so nothing is sent there at all.
+    const isMac = process.platform === 'darwin';
     try {
       const probePeak = await this.probeSystemAudioPeak();
       if (!this.isMeetingActive || this._isQuitting) return;
@@ -4756,11 +4762,7 @@ export class AppState {
         // Nothing is playing through the tapped device — a rebuild would only
         // churn captures. Tell the user once, then re-arm the window.
         //
-        // macOS only: 'mac-deaf-system-tap' describes a Core Audio Process Tap
-        // that started and then only ever saw silence, which is a CoreAudio
-        // constraint (and `formatPermissionMessage` falls back to the generic
-        // 'system-audio-stuck' copy off darwin). Windows WASAPI loopback has no
-        // equivalent state, so the message is not sent there at all.
+        // macOS only — see isMac above.
         if (!isMac) return;
         this._systemAudioZeroFillSinceMs = Date.now();
         this.sendAudioCaptureFailed({

@@ -37,13 +37,15 @@ import {
   countUnreadableFormulas,
   FORMULA_IN_IMAGE_RE,
   formulaInImage,
+  FormulaTokens,
   FORMULAS_NOTE,
   inlineFormulas,
+  TOKEN_RE,
   UNREADABLE_FORMULA,
   type InlineFormulasOptions,
 } from './math-text';
 import { DEFAULT_REGISTRY, findPlatform, normalizeHost } from './capture/registry/registry';
-import { outermost } from './capture/extractors/dom-helpers';
+import { blockText, outermost } from './capture/extractors/dom-helpers';
 
 // Mirror of DOM_CONTEXT_MAX_CHARS in electron/config/constants.ts and
 // src/constants/domCapture.ts. This is a separate package so we cannot import
@@ -106,59 +108,6 @@ export interface ExtractResult {
   formulas: string[];
 }
 
-// Placeholder for a formula to draw, numbered once the text is final: several
-// clones are extracted and only one becomes the body.
-const TOKEN_RE = /\uE000(\d+)\uE001/g;
-
-/** Formulas with no text that `serializeFormula` can draw, across every clone of one extraction. */
-class FormulaTokens {
-  readonly markup: string[] = [];
-
-  constructor(private readonly serialize?: (formula: Element) => string | null) {}
-
-  readonly options = (sources?: Node): InlineFormulasOptions => ({
-    sources: sources as never,
-    markerFor: (formula) => {
-      if (!this.serialize) return null;
-      let svg: string | null = null;
-      try {
-        svg = this.serialize(formula as unknown as Element);
-      } catch {
-        svg = null;
-      }
-      if (!svg) return null;
-      this.markup.push(svg);
-      return `\uE000${this.markup.length - 1}\uE001`;
-    },
-  });
-
-  /**
-   * Number the formulas in `text` in reading order, one number per distinct
-   * formula (a page repeats its variables many times); keeps the text within
-   * `limit`.
-   */
-  finish(text: string, limit: number): { text: string; formulas: string[] } {
-    const formulas: string[] = [];
-    const numberOf = new Map<string, number>();
-    let out = text.replace(TOKEN_RE, (_, id: string) => {
-      const svg = this.markup[Number(id)];
-      let n = numberOf.get(svg);
-      if (n === undefined) {
-        n = formulas.push(svg);
-        numberOf.set(svg, n);
-      }
-      return formulaInImage(n);
-    });
-    if (out.length > limit) {
-      out = out.slice(0, limit);
-      let last = 0;
-      for (const m of out.matchAll(FORMULA_IN_IMAGE_RE)) last = Math.max(last, Number(m[1]));
-      formulas.length = last;
-    }
-    return { text: out, formulas };
-  }
-}
-
 /** Formula markers of every kind, placeholders included. */
 function formulaGaps(text: string): number {
   return countFormulaMarkers(text) + (text.match(TOKEN_RE) || []).length;
@@ -207,51 +156,12 @@ function innerTextFallback(doc: Document, formulas: InlineFormulasOptions): stri
   inlineFormulas(clone as never, formulas);
   const drop = clone.querySelectorAll('script, style, noscript, template');
   drop.forEach((n) => n.parentNode?.removeChild(n));
-  // innerText respects visibility/line-breaks; textContent does not. Prefer
-  // innerText when available (jsdom/real browser), else fall back to textContent.
-  const text = (clone as { innerText?: string }).innerText ?? clone.textContent ?? '';
+  // A detached clone's innerText is its textContent in Chrome (no layout), so
+  // a real node is read block by block; innerText only for a shim without one.
+  const text = clone.childNodes
+    ? blockText(clone)
+    : ((clone as { innerText?: string }).innerText ?? clone.textContent ?? '');
   return collapseWhitespace(text);
-}
-
-const BLOCK_TAGS = new Set([
-  'p', 'div', 'section', 'article', 'header', 'footer', 'ul', 'ol', 'li', 'pre', 'table', 'tr',
-  'blockquote', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'dl', 'dt', 'dd',
-]);
-const SKIP_TAGS = new Set(['script', 'style', 'noscript', 'template', 'svg']);
-// Table cells sit side by side: keep a gap between them, or "N" and "10^5" in
-// a constraints table read as "N10^5".
-const CELL_TAGS = new Set(['td', 'th']);
-
-/**
- * Text of a DETACHED element with line breaks at block boundaries. innerText
- * would do this on the live page, but a clone has no layout, and the live page
- * still has the formulas only as SVG.
- */
-function blockText(root: Node): string {
-  const out: string[] = [];
-  const walk = (node: Node) => {
-    for (const child of Array.from(node.childNodes || [])) {
-      if (child.nodeType === 3) {
-        out.push((child as Text).data);
-        continue;
-      }
-      if (child.nodeType !== 1) continue;
-      const tag = (child.nodeName || '').toLowerCase();
-      if (SKIP_TAGS.has(tag)) continue;
-      if (tag === 'br') {
-        out.push('\n');
-        continue;
-      }
-      const block = BLOCK_TAGS.has(tag);
-      if (block) out.push('\n');
-      if (tag === 'li') out.push('- ');
-      walk(child);
-      if (block) out.push('\n');
-      else if (CELL_TAGS.has(tag)) out.push(' ');
-    }
-  };
-  walk(root);
-  return collapseWhitespace(out.join(''));
 }
 
 /**

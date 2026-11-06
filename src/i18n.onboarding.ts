@@ -10,8 +10,8 @@
 //
 // Spread into src/i18n.tsx AFTER each *_GENERATED file and BEFORE the
 // hand-authored block, so a row here also fills a key the generated file lists
-// untranslated (zh and es "Answer" are). A key the generated files already
-// translate is left out on purpose, so their wording stands.
+// untranslated. A key the generated files already translate is left out on
+// purpose, so their wording stands.
 
 type Row = readonly [ru: string, zh: string, ja: string, es: string];
 
@@ -35,6 +35,7 @@ const ROWS: Record<string, Row> = {
     '30 分の無料時間は、最初のミーティングの開始とともに始まります。カードは不要です。',
     'Tus 30 minutos gratis empiezan con tu primera reunión. Sin tarjeta.',
   ],
+  'Watch a 9-minute demo': ['Смотреть 9-минутное демо', '观看 9 分钟演示', '9 分のデモを見る', 'Ver una demo de 9 minutos'],
   'By continuing, you agree to our {terms} and {privacy}.': [
     'Продолжая, вы принимаете наши {terms} и {privacy}.',
     '继续即表示你同意我们的{terms}和{privacy}。',
@@ -121,10 +122,12 @@ const ROWS: Record<string, Row> = {
     'Por lo que se ve en pantalla, señalaría las cifras de la segunda columna: van al alza semana tras semana y puedo explicar qué las impulsa.',
   ],
 
-  // Already translated in the generated files, but left as English in zh and es.
-  'Answer': ['Ответить', '回答', '回答', 'Responder'],
-  'Ask a question or click Answer': [
-    'Задайте вопрос или нажмите «Ответить»', '提问，或点击“回答”', '質問を入力するか、［回答］をクリックしてください', 'Haz una pregunta o pulsa Responder',
+  // The voice button, Speak (was Answer until 2026-10-30), here and in the
+  // real overlay, which reads this row too, as do its screenshot tray and its
+  // shortcut in Settings.
+  'Speak': ['Сказать', '说话', '話す', 'Hablar'],
+  'Type a question or click Speak': [
+    'Введите вопрос или нажмите «Сказать»', '输入问题，或点击“说话”', '質問を入力するか、［話す］をクリックしてください', 'Escribe una pregunta o pulsa Hablar',
   ],
 };
 

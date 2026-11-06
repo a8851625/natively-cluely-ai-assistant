@@ -22,11 +22,15 @@ import fs from "fs"
 import os from "os"
 import { windowsMicBlocker, windowsMicPage } from '../src/lib/micPermissionPolicy.mjs'
 import { SystemAudioHealthClassifier } from "./audio/systemAudioHealthClassifier.mjs"
+import { classifySttError } from "./audio/sttErrorClassifier.mjs"
 import { OutputRouteMismatchDetector } from "./audio/outputRouteMismatch.mjs"
 import { FatalMainProcessCoordinator } from "./utils/fatalMainProcess"
 import { installResilientDnsLookup } from "./utils/resilientDnsLookup"
+import { trustSystemCertificates } from "./utils/systemCertificates"
 import { resolveDebugLogPath } from "./utils/debugLogPath.mjs"
+import { startupLogAction, startupLogMarker, type StartupLogLock } from "./utils/startupLogPolicy"
 import { MeetingLifecycleQueue, type MeetingLifecycleState } from "./audio/meetingLifecycleQueue"
+import { describeMicRate } from "./audio/micRateDiagnostics"
 import { systemAudioGrant, systemAudioRecordingBlocked, zeroFillMeansScreenRecordingLost, zeroFillMeansSystemAudioRecordingDenied } from "./audio/systemAudioPermission"
 import { defaultInputDecision } from "./audio/defaultInputFollow"
 import { autoUpdater } from "electron-updater"
@@ -48,6 +52,12 @@ import {
 // bounded FALLBACK behind a cached system lookup. See
 // electron/utils/resilientDnsLookup.ts for the contract and its tests.
 installResilientDnsLookup();
+
+// Antivirus HTTPS scanning and corporate TLS inspection re-sign connections
+// with a root that lives only in the OS store, which Node never read: every
+// transcription socket and LLM call failed until the user turned their
+// antivirus off. See electron/utils/systemCertificates.ts.
+trustSystemCertificates();
 
 if (!app.isPackaged) {
   require('dotenv').config();
@@ -695,15 +705,22 @@ function shouldTruncatePriorLog(): boolean {
 }
 
 let _didStartupLogReset = false;
+// Set right after requestSingleInstanceLock(), before the lock is logged: a
+// second launch must not wipe the running app's log (startupLogPolicy.ts).
+let _startupLogLock: StartupLogLock = 'unknown';
 function resetStartupLog(): void {
   if (_didStartupLogReset) return;
+  // Not known yet whether this process is the app or a second launch about to
+  // exit: append, and decide on the first write after the lock is asked for.
+  if (_startupLogLock === 'unknown') return;
   _didStartupLogReset = true;
   const logFile = getLogFile();
   if (!logFile) return;
   try { fs.mkdirSync(path.dirname(logFile), { recursive: true }); } catch { /* best-effort */ }
-  const truncate = shouldTruncatePriorLog();
+  const action = startupLogAction(_startupLogLock, shouldTruncatePriorLog);
+  const truncate = action === 'truncate';
   try {
-    if (fs.existsSync(logFile)) {
+    if (action !== 'append' && fs.existsSync(logFile)) {
       if (truncate) {
         // Clean prior session: blow away the previous log so the user only
         // sees current-session breadcrumbs. Old contents are GONE.
@@ -737,10 +754,13 @@ function resetStartupLog(): void {
   // Always write a marker line so the user (and we) can confirm what
   // happened to the prior log.
   try {
-    fs.appendFileSync(
-      logFile,
-      `${new Date().toISOString()} [STARTUP] log opened (prior=${truncate ? 'truncated' : 'rotated-to-prev'}) pid=${process.pid} version=${app.getVersion?.() ?? 'unknown'} platform=${process.platform} arch=${process.arch}\n`,
-    );
+    fs.appendFileSync(logFile, startupLogMarker(action, {
+      isoTime: new Date().toISOString(),
+      pid: process.pid,
+      version: app.getVersion?.() ?? 'unknown',
+      platform: process.platform,
+      arch: process.arch,
+    }));
   } catch { /* best-effort */ }
 }
 
@@ -1339,7 +1359,7 @@ import { AutoAnswerUsageTelemetry } from "./intelligence/autoAnswer/AutoAnswerUs
 import { currentWhisperGlossaryPrompt, nameTerms, setSttContextTerms, setSttDictionaryTerms } from "./audio/sttContextTerms"
 import { getUserDictionary } from "./audio/userDictionary"
 import { LOCAL_STT_PROVIDERS, SttGapRecoveryCoordinator, type RecoveredSegment, type SttSource } from "./audio/sttGapRecovery"
-import { SttFailover, failoverNotice, type FailoverStatus } from "./audio/sttFailover"
+import { SttFailover, failoverNotice, type FailoverCause, type FailoverStatus } from "./audio/sttFailover"
 import { resolveAutoAnswerThresholds } from "./context-intelligence/policies/mode-policy-registry"
 import type { SpeechEdge } from "./audio/speechEdge"
 import { SonioxStreamingSTT } from "./audio/SonioxStreamingSTT"
@@ -1438,6 +1458,7 @@ try {
 
 import { CredentialsManager } from "./services/CredentialsManager"
 import { SettingsManager } from "./services/SettingsManager"
+import { parseScreenshotDisplayPreference, resolveScreenshotDisplay } from "./screenshotDisplay"
 import { buildTelemetrySinks } from "./services/telemetry/telemetrySinks"
 import { PhoneMirrorService, shouldStartPhoneMirrorOnBoot } from "./services/PhoneMirrorService"
 import { PHONE_IMAGE_PREFIX } from "./utils/phoneImage"
@@ -1450,7 +1471,7 @@ import {
 } from "./utils/overlayImageAttach"
 import { renderPhoneAnswer } from "./services/phoneMirrorMarkdown"
 import { describeFormulaImage, describePageCaptureFallback, describeDoubleCaptureFailure, describeUnreadableFormulas, PAGE_CAPTURE_FALLBACK_CHANNEL, PAGE_CAPTURE_STARTED_CHANNEL } from "./services/pageCaptureFallback"
-import { FormulaScreenshotHandoff, markMissingFormulas, type FormulaShot } from "./services/formulaScreenshotHandoff"
+import { AUTO_FORMULA_IMAGE_MAX_AGE_MS, FormulaScreenshotHandoff, markMissingFormulas, type FormulaShot } from "./services/formulaScreenshotHandoff"
 import { setVerboseLoggingFlag } from "./verboseLog"
 import { ReleaseNotesManager } from "./update/ReleaseNotesManager"
 import { OllamaManager } from './services/OllamaManager'
@@ -1478,9 +1499,11 @@ import { nativePromptsBlocked } from './services/stealthPromptGate'
 import { createForeignWindowCaptureGuard, wrapAsyncDialogs, type ForeignWindowCaptureGuard } from './services/foreignWindowCaptureGuard'
 import { acceptsLocalSpeechEndHint } from './intelligence/autoAnswer/SimpleAutoAnswer'
 import { NativeOomTrace } from './utils/NativeOomTrace'
-import { setStealthHookAvailabilityProvider } from './utils/windowsFocusPolicy'
+import { setStealthHookAvailabilityProvider, setNoActivateClickDelivery } from './utils/windowsFocusPolicy'
 import { hasLiveRenderer } from './utils/rendererLiveness'
-import { DEFAULT_MEETING_SURFACE, planMeetingStart } from './utils/meetingSurface'
+import { DEFAULT_MEETING_SURFACE, planMeetingStart, planMeetingResume, planNotesClosed, type MeetingSurface } from './utils/meetingSurface'
+import { resumeMetadata, resumedChatFrom, type ResumeBase } from './services/meeting/meetingResume'
+import { isDefaultMeetingTitle } from './MeetingPersistence'
 import {
   shouldPromoteToRegularAtStartup,
   planDisguiseTitleWrites,
@@ -1841,6 +1864,16 @@ export class AppState {
         return false;
       }
     });
+    setNoActivateClickDelivery((win) => {
+      if (process.platform !== 'win32') return;
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { loadNativeModule } = require('./audio/nativeModuleLoader');
+      const native = loadNativeModule();
+      if (typeof native?.deliverClicksWithoutActivation !== 'function') return;
+      if (!native.deliverClicksWithoutActivation((win as BrowserWindow).getNativeWindowHandle())) {
+        console.warn('[AppState] could not subclass a no-activate window; its clicks may be eaten when no Natively window is active');
+      }
+    });
 
     // 2. Initialize Helpers with loaded state
     this.windowHelper = new WindowHelper(this)
@@ -1865,6 +1898,19 @@ export class AppState {
     // The overlay's Notes button shows whether the window is open.
     this.notesWindowHelper.onVisibilityChange((visible) => {
       this.sendToWindow(this.windowHelper.getOverlayWindow(), 'notes-window-visibility', visible);
+      // The notepad's demand (FunnelTelemetry.notepadUsed): it came up.
+      if (visible) { try { require('./services/FunnelTelemetry').funnelTelemetry.notepadUsed('opened'); } catch { /* analytics only */ } }
+    });
+    // Closing the notepad never leaves the screen empty (utils/meetingSurface.ts):
+    // after a Stop it brings up the launcher Stop held back (endMeeting); during
+    // a notepad meeting it goes home, as the overlay's logo does, and the
+    // launcher's "Meeting ongoing" brings the notepad back (resumeMeetingSurface).
+    this.notesWindowHelper.onClosedByUser(() => {
+      try { require('./services/FunnelTelemetry').funnelTelemetry.notepadUsed('closed'); } catch { /* analytics only */ }
+      const inactive = this.isUndetectable ? true : undefined;
+      const action = planNotesClosed(this.isMeetingActive, this.windowHelper.isOverlayHeldHidden());
+      if (action === 'owed-launcher') this.windowHelper.showOwedLauncher(inactive);
+      else if (action === 'launcher') this.windowHelper.setWindowMode('launcher', inactive);
     });
 
     if (process.platform === 'win32' || process.platform === 'darwin') {
@@ -2399,8 +2445,6 @@ export class AppState {
       setLive: (text) => this.intelligenceManager.setLiveUserNotes(text),
       saveEnded: (meetingId, text) => { DatabaseManager.getInstance().setMeetingUserNotes(meetingId, text); },
       broadcast: (state) => this.sendToWindow(this.notesWindowHelper.getWindow(), 'live-notes-state', state),
-      // The notepad's folder button (services/organise), as "Move to folder" on the meeting page.
-      fileInFolder: (meetingId, folderId, inFolder) => this.fileMeetingInFolder(meetingId, folderId, inFolder),
     })
 
     // Initialize ThemeManager
@@ -2592,17 +2636,6 @@ export class AppState {
     this.nativeOomTraceTimer = null;
   }
 
-  // The notepad's folder button (LiveNotesSession.fileInFolder). Every list of
-  // meetings refreshes, as "Move to folder" on the meeting page does.
-  private fileMeetingInFolder(meetingId: string, folderId: string, inFolder: boolean): boolean {
-    const { organiseStore } = require('./services/organise/organiseService');
-    const store = organiseStore();
-    if (!store) return false;
-    const ok = inFolder ? store.addMeetingToFolder(meetingId, folderId, 'user') : store.removeMeetingFromFolder(meetingId, folderId);
-    if (ok) for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('meetings-updated');
-    return ok;
-  }
-
   private sendToWindow(win: BrowserWindow | null | undefined, channel: string, ...args: any[]): boolean {
     if (!win || win.isDestroyed()) return false;
     try {
@@ -2765,6 +2798,11 @@ export class AppState {
 
   public getIsMeetingActive(): boolean {
     return this.isMeetingActive;
+  }
+
+  /** A meeting start is queued or under way (MeetingLifecycleQueue.hasPendingStart). */
+  public hasPendingMeetingStart(): boolean {
+    return this._meetingLifecycle.hasPendingStart();
   }
 
   /** The microphone the last meeting asked for (dictation opens the same one), or undefined for the default. */
@@ -2966,6 +3004,12 @@ export class AppState {
         const { ModesManager } = require('./services/ModesManager');
         const modeEmbeddingPipeline = this.ragManager.getEmbeddingPipeline();
         ModesManager.getInstance().setSharedEmbeddingPipeline(modeEmbeddingPipeline);
+        // Background re-indexing tells the Modes Manager badges, as uploads do.
+        ModesManager.getInstance().setReferenceIndexStatusListener((event: { modeId: string; fileId: string; phase: 'indexing' | 'done' }) => {
+          BrowserWindow.getAllWindows().forEach((win) => {
+            if (!win.isDestroyed()) win.webContents.send('mode-file-index-status', event);
+          });
+        });
         this.scheduleModeReferenceIndexRetry();
 
         // Context Intelligence V3: hand the engine LAZY access to the meeting
@@ -3904,7 +3948,26 @@ export class AppState {
     return this.currentUserName();
   }
 
+  /** The surface the running meeting started on (startMeeting). */
+  private meetingSurface: MeetingSurface = DEFAULT_MEETING_SURFACE;
+
+  /**
+   * The launcher's "Meeting ongoing" (set-window-mode 'overlay' mid-meeting):
+   * back to the meeting's own surface, the notepad for a notepad meeting
+   * (utils/meetingSurface.planMeetingResume), the overlay otherwise.
+   */
+  public resumeMeetingSurface(inactive?: boolean): void {
+    const plan = planMeetingResume(this.meetingSurface);
+    this.windowHelper.setWindowMode('overlay', inactive, { hidden: plan.overlayHidden });
+    if (plan.openNotes) this.notesWindowHelper.open({ activate: false });
+  }
+
   /** The user's name: the active résumé's, else the connected Calendar account's. */
+  /** The user's name for recipes that sign as them (notepad recipes, 2026-10-31). */
+  public getUserName(): string | null {
+    return this.currentUserName();
+  }
+
   private currentUserName(): string | null {
     try {
       const orchestrator = this.knowledgeOrchestrator ?? this.processingHelper?.getLLMHelper?.()?.getKnowledgeOrchestrator?.();
@@ -4317,6 +4380,9 @@ export class AppState {
     // carries the live stream, until this one is back.
     this._sttFailover[gapSource]?.stop();
     const rawStop = stt.stop.bind(stt);
+    // Why the primary last handed over, for the notice: set just before
+    // engage(), which reports the stand-in synchronously.
+    let failoverCause: FailoverCause = 'other';
     const failover = new SttFailover({
       source: gapSource,
       primary: effectiveSttId,
@@ -4337,7 +4403,7 @@ export class AppState {
             state: 'connected',
             provider: sttProvider,
             channel: speaker,
-            fallback: { provider: st.fallback, notice: failoverNotice(effectiveSttId, st.fallback) },
+            fallback: { provider: st.fallback, notice: failoverNotice(effectiveSttId, st.fallback, failoverCause) },
           });
         } else if (st.reason === 'exhausted') {
           _lastState = 'failed';
@@ -4382,54 +4448,34 @@ export class AppState {
     // implied a recovery state from the get-go.
     let _lastState: 'connected' | 'reconnecting' | 'failed' | 'awaiting-audio' | 'preparing' = 'awaiting-audio';
 
-    stt.on('error', (err: Error) => {
-      // Google streamingRecognize's 10s silence timeout closes the stream
-      // with gRPC code 11 ("Audio Timeout Error"). GoogleSTT already
-      // swallows this case before it reaches us, but other providers may
-      // surface a similar idle-timeout that the lazy-reconnect path
-      // recovers from cleanly. Downgrade to a one-liner here as well so
-      // a stray bubble-up doesn't cascade into stack-trace noise.
-      const grpcCode = (err as any)?.code;
-      if (grpcCode === 11 || /Audio Timeout Error/i.test(err.message || '')) {
+    stt.on('error', (raw: unknown) => {
+      // Every check below reads err.message; a provider that emits a bare
+      // string or object (ElevenLabs did, for quota/auth) made this handler
+      // throw before any status reached the overlay.
+      const err: Error = raw instanceof Error
+        ? raw
+        : Object.assign(new Error(typeof raw === 'string' ? raw : ((raw as any)?.message || (raw as any)?.error || JSON.stringify(raw) || 'Unknown STT error')), { code: (raw as any)?.code });
+      // Read by sttErrorClassifier.mjs (pure, tested): auth/account verdicts
+      // and providers that have stopped (`terminal`) end as "failed" at once;
+      // quota may hand over to a stand-in; the rest reconnect.
+      const verdict = classifySttError(err);
+      if (verdict.kind === 'idle') {
+        // A provider's no-audio limit (Google's gRPC 11 silence timeout): the
+        // lazy-reconnect path recovers on the next chunk. One line, no trace.
         console.warn(`[Main] STT (${speaker}) idle-timed-out (provider's no-audio limit), reconnecting on next chunk.`);
         return;
       }
 
       console.error(`[Main] STT (${speaker}) Error:`, err);
 
-      // Extract richer error info from Axios errors (RestSTT)
-      let errorMessage = err.message;
-      const axiosErr = err as any;
-      const httpStatus = axiosErr?.response?.status || 0;
-      if (axiosErr?.response?.data?.error) {
-        const respErr = axiosErr.response.data.error;
-        const respMsg = typeof respErr === 'string' ? respErr : (respErr.message || respErr.code || JSON.stringify(respErr));
-        errorMessage = httpStatus ? `${httpStatus} ${respMsg}` : respMsg;
-      } else if (httpStatus) {
-        errorMessage = `${httpStatus} ${axiosErr.response.statusText}`;
-      }
-
-      // Immediately fatal: auth/account problems — no amount of retrying helps
-      const isAuthError = httpStatus === 401
-        || err.message.toLowerCase().includes('auth_timeout')
-        || err.message.toLowerCase().includes('invalid_key')
-        || err.message.toLowerCase().includes('invalid api')
-        || err.message.toLowerCase().includes('authentication')
-        // Google STT with no usable Service Account JSON. GoogleSTT has already
-        // disabled the channel and opens no stream until a new key is set
-        // (GoogleSTT.CREDENTIALS_UNAVAILABLE_CODE), so it is terminal by code,
-        // not by whatever words the message happens to contain.
-        || (err as any)?.code === 'google_stt_credentials_unavailable';
-
-      const isQuotaError = err.message.toLowerCase().includes('transcription_quota_exceeded')
-        || err.message.toLowerCase().includes('quota');
-
+      const errorMessage = verdict.errorMessage;
+      const isQuotaError = verdict.kind === 'quota';
+      const isAuthError = verdict.kind === 'auth';
       // A local STT worker that could not start (no ONNX slot within 20s, or
       // the model never reported ready) is terminal for this meeting: nothing
       // restarts a LocalWhisperSTT instance, so "reconnecting" would be a lie
-      // the user stares at until they end the call. Surface the actionable
-      // message as a failure instead (LocalWhisperSTT.LOCAL_STT_UNAVAILABLE_CODE).
-      const isLocalSttUnavailable = (err as any)?.code === 'local_stt_unavailable';
+      // the user stares at until they end the call (LOCAL_STT_UNAVAILABLE_CODE).
+      const isLocalSttUnavailable = verdict.kind === 'local_unavailable';
 
       if (isAuthError || isLocalSttUnavailable) {
         _consecutiveErrors = 0;
@@ -4459,6 +4505,7 @@ export class AppState {
       if (_consecutiveErrors >= maxErrors || isQuotaError) {
         // Past the reconnect policy: another transcriber takes the live stream
         // when the user has one set up (it reports its own status).
+        failoverCause = isQuotaError ? 'quota' : 'other';
         if (failover.engage()) return;
         _lastState = 'failed';
         this.sendSttStatus( {
@@ -4708,6 +4755,13 @@ export class AppState {
       if (probePeak <= SYSTEM_AUDIO_MEANINGFUL_PEAK) {
         // Nothing is playing through the tapped device — a rebuild would only
         // churn captures. Tell the user once, then re-arm the window.
+        //
+        // macOS only: 'mac-deaf-system-tap' describes a Core Audio Process Tap
+        // that started and then only ever saw silence, which is a CoreAudio
+        // constraint (and `formatPermissionMessage` falls back to the generic
+        // 'system-audio-stuck' copy off darwin). Windows WASAPI loopback has no
+        // equivalent state, so the message is not sent there at all.
+        if (!isMac) return;
         this._systemAudioZeroFillSinceMs = Date.now();
         this.sendAudioCaptureFailed({
           channel: 'system',
@@ -4722,6 +4776,8 @@ export class AppState {
       }
       if (this._systemAudioZeroFillRebuilds >= SYSTEM_AUDIO_ZERO_FILL_MAX_REBUILDS) {
         this._systemAudioZeroFillSinceMs = Date.now();
+        // Same macOS-only reasoning as above.
+        if (!isMac) return;
         this.sendAudioCaptureFailed({
           channel: 'system',
           message: formatPermissionMessage('mac-deaf-system-tap'),
@@ -5116,6 +5172,14 @@ export class AppState {
         this._sttFailover.mic?.setAudioChannelCount(1);
         this._micSttRateApplied = true;
         console.log(`${prefix}User STT rate locked from first mic chunk: ${rate}Hz`);
+        // The native module prints its device format to stdout only; this puts
+        // it in natively_debug.log (see micRateDiagnostics.ts for why).
+        const micFormat = describeMicRate({
+          emittedRate: rate,
+          nativeRate: capture.getNativeSampleRate(),
+          channels: capture.getChannelCount(),
+        });
+        (micFormat.unusual ? console.warn : console.log)(`${prefix}${micFormat.line}`);
       }
 
       // HFP-degradation backstop. The proactive reconfigureAudio check handles
@@ -7689,6 +7753,20 @@ export class AppState {
       this._pendingTeardown = null;
     }
 
+    // Resume (2026-11-02, services/meeting/meetingResume.ts): this meeting
+    // continues a saved one under its id. Read after the teardown above, so a
+    // meeting stopped a moment ago is already saved.
+    const resumeId = typeof metadata?.resumeMeetingId === 'string' && metadata.resumeMeetingId ? metadata.resumeMeetingId as string : null;
+    let resumeBase: ResumeBase | null = null;
+    if (resumeId) {
+      resumeBase = this.intelligenceManager.loadResumeBase(resumeId);
+      if (!resumeBase) {
+        const err = new Error('That meeting could not be found.') as Error & { code?: string };
+        err.code = 'resume-not-found';
+        throw err;
+      }
+    }
+
     // PR #173: Reset audio recovery state for fresh session
     this._systemAudioRecoveryInProgress = false;
     this._systemAudioRecoveryAttempts = 0;
@@ -7774,7 +7852,11 @@ export class AppState {
     // utils/meetingSurface.ts). A notepad meeting is in overlay mode with the
     // overlay hidden, and the notepad opens below once the page is this meeting's.
     let startPlan = planMeetingStart(DEFAULT_MEETING_SURFACE, false);
-    try { startPlan = planMeetingStart(SettingsManager.getInstance().get('meetingSurface'), this.notesWindowHelper.wasLeftOpen()); } catch { /* the overlay, as always */ }
+    // A resumed meeting opens what it was taken on, whatever the switcher says now.
+    try { startPlan = planMeetingStart(resumeBase ? resumeBase.surface : SettingsManager.getInstance().get('meetingSurface'), this.notesWindowHelper.wasLeftOpen()); } catch { /* the overlay, as always */ }
+    // Kept for the launcher's "Meeting ongoing" (resumeMeetingSurface): a
+    // switch in Settings mid-meeting does not move this meeting.
+    this.meetingSurface = startPlan.overlayHidden ? 'notepad' : 'overlay';
 
     // ─── WINDOW SWAP BEFORE STATE BROADCAST ───────────────────────────────
     // Switch to the overlay BEFORE flipping `isMeetingActive` to true. If we
@@ -7794,11 +7876,12 @@ export class AppState {
     try { setSttDictionaryTerms(getUserDictionary()); } catch { /* a hint, never a blocker */ }
     // The transcript goes to disk as it grows, so a quit or crash mid-meeting
     // is recovered at the next launch (services/meeting/LiveMeetingJournal.ts).
-    try { this.intelligenceManager.beginLiveMeeting(); } catch (e) { console.warn('[Main] live meeting journal unavailable:', (e as Error)?.message); }
+    try { this.intelligenceManager.beginLiveMeeting(undefined, { surface: this.meetingSurface, resume: resumeBase }); } catch (e) { console.warn('[Main] live meeting journal unavailable:', (e as Error)?.message); }
     // The notes window's page belongs to this meeting now; someone who keeps
-    // the window open gets it back, without it taking focus.
+    // the window open gets it back, without it taking focus. A resume keeps
+    // the meeting's notes on the page.
     try {
-      this.liveNotes.meetingStarted();
+      this.liveNotes.meetingStarted(resumeBase ? { meetingId: resumeBase.meetingId, text: resumeBase.userNotes ?? '' } : undefined);
       this.notesWindowHelper.reopenForMeeting(startPlan.openNotes);
     } catch (e) { console.warn('[Main] notes window not reopened:', (e as Error)?.message); }
     this.transcriptionPause.setPaused(false);
@@ -7815,13 +7898,24 @@ export class AppState {
       if (provider !== 'none' && !LOCAL_STT_PROVIDERS.has(provider)) this.sttGap.startMeeting();
       else this.sttGap.endMeeting();
     } catch { /* recovery is extra; the meeting runs without it */ }
-    try { require('./services/FunnelTelemetry').funnelTelemetry.meetingStarted(this.intelligenceManager.getAnswerCount()); } catch { /* analytics never blocks a meeting */ }
+    // What it opened on, and whether the notepad is up from the start (a notepad
+    // meeting, or the user left it open), for the notepad's demand (2026-11-01).
+    try { require('./services/FunnelTelemetry').funnelTelemetry.meetingStarted(this.intelligenceManager.getAnswerCount(), this.meetingSurface, startPlan.openNotes || this.notesWindowHelper.isVisible(), !!resumeBase); } catch { /* analytics never blocks a meeting */ }
     // No AI set up: the free trial starts by itself. Below the funnel line on
     // purpose, so `meeting_started.ai` still says what the meeting began with.
     // Fire and forget: the overlay is told when it starts or cannot.
     try { this.autoStartTrialForMeeting?.(); } catch { /* a trial never blocks a meeting */ }
     this.broadcastMeetingState()
-    if (metadata) {
+    if (resumeBase) {
+      // The saved meeting's title and calendar link: already linked, so no
+      // new link and no "last time" lookup (it would find this very meeting).
+      this.intelligenceManager.setMeetingMetadata({
+        ...resumeMetadata(resumeBase, isDefaultMeetingTitle),
+        resumedFrom: resumeBase.meetingId,
+        // Retention "never" still holds for the new part (MeetingPersistence.mustNotPersist).
+        ...(metadata?.doNotPersist === true ? { doNotPersist: true } : {}),
+      });
+    } else if (metadata) {
       this.intelligenceManager.setMeetingMetadata(metadata);
       // Which calendar event this is (title, attendees, 1:1 speaker names,
       // follow-up recipients). Decides at once from the cached list; never
@@ -7832,7 +7926,8 @@ export class AppState {
       try { getAssistService()?.noteMeetingStarted(metadata, () => this.isMeetingActive && this._meetingGeneration === meetingGeneration); } catch { /* a recap never blocks a start */ }
     }
     // Zoom / Teams read-only signals: who speaks, the meeting ID, mute, a shared screen.
-    this.startDesktopCallSpeakers(metadata ?? null, meetingGeneration);
+    // A resume's metadata is the session's own (set above), not the start request.
+    this.startDesktopCallSpeakers(resumeBase ? null : (metadata ?? null), meetingGeneration);
     // Every meeting gets its own conversation history, whether or not a mode
     // is active (the dynamic-action session id below exists only WITH a mode,
     // and without one every meeting shared one history — 2026-09-24).
@@ -7878,8 +7973,10 @@ export class AppState {
       });
     } catch { /* non-fatal */ }
 
-    // Emit session reset to clear UI state immediately
-    this.sendToWindow(this.getWindowHelper().getOverlayWindow(), 'session-reset');
+    // Emit session reset to clear UI state immediately. A resume hands the
+    // overlay the saved meeting's answers, so its chat carries on where it
+    // stopped (meetingResume.resumedChatFrom; renderer src/lib/resumedChat.mjs).
+    this.sendToWindow(this.getWindowHelper().getOverlayWindow(), 'session-reset', resumeBase ? { resumedChat: resumedChatFrom(resumeBase.usage) } : undefined);
     this.sendToWindow(this.getWindowHelper().getLauncherWindow(), 'session-reset');
 
     // LOCAL-MODEL WARMUP: if the active model is a local Ollama model, warm + pin
@@ -8264,7 +8361,10 @@ export class AppState {
     // centerAndShowWindow pattern) — the user often stops transcription while
     // the proctored test continues, and an activating show would blur the
     // test page. Normal mode is unchanged (active show + focus).
-    this.windowHelper.setWindowMode('launcher', this.isUndetectable ? true : undefined);
+    //
+    // The notepad open at Stop (2026-10-31): its notes are written now, so it
+    // stays in front and the launcher waits until it is closed (onClosedByUser).
+    this.windowHelper.setWindowMode('launcher', this.isUndetectable ? true : undefined, { hidden: this.notesWindowHelper.isVisible() });
 
     // ─── CLEAR THE OVERLAY TREE WHILE IT IS HIDDEN ─────────────────────────
     // The overlay BrowserWindow is PERSISTENT — created once with show:false
@@ -8767,6 +8867,17 @@ export class AppState {
       else this.sendToWindow(win, 'intelligence-recap', { summary: text })
     })
 
+    // The user's own buttons (llm/customButtons.ts) are shown in Recap's card,
+    // like Define and What did I miss?.
+    this.intelligenceManager.on('custom_button_token', (token: string) => {
+      queueBatch('recap', { token });
+    })
+
+    this.intelligenceManager.on('custom_button', (text: string) => {
+      flushBatchesBeforeFinal();
+      this.sendToWindow(mainWindow(), 'intelligence-recap', { summary: text })
+    })
+
     this.intelligenceManager.on('manual_answer_started', () => {
       // The hotkey/click commits whatever Auto Answer was offering — and,
       // inside the feedback window, says the automatic answer missed.
@@ -9144,16 +9255,18 @@ export class AppState {
   }
 
   private getTargetDisplayForFullScreenshot(session: ScreenshotCaptureSession): Electron.Display {
+    const cursorDisplay = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    let overlayDisplay: Electron.Display = cursorDisplay;
     if (session.windowMode === 'overlay' && session.overlayBounds) {
-      return screen.getDisplayMatching(session.overlayBounds);
+      overlayDisplay = screen.getDisplayMatching(session.overlayBounds);
+    } else {
+      overlayDisplay = this.getDisplayById(session.overlayDisplayId) ?? cursorDisplay;
     }
 
-    const lastOverlayDisplay = this.getDisplayById(session.overlayDisplayId);
-    if (lastOverlayDisplay) {
-      return lastOverlayDisplay;
-    }
-
-    return screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+    // Settings › Overlay › Screenshot screen. With three monitors the overlay's
+    // screen is often not the one the question is on (customer, 2026-10-29).
+    const preference = parseScreenshotDisplayPreference(SettingsManager.getInstance().get('screenshotDisplay'));
+    return resolveScreenshotDisplay(preference, screen.getAllDisplays(), overlayDisplay, cursorDisplay);
   }
 
   private hideWindowsForScreenshot(session: ScreenshotCaptureSession): void {
@@ -9358,6 +9471,29 @@ export class AppState {
       shot?.settle(null);
       this.sendToWindow(overlay(), PAGE_CAPTURE_FALLBACK_CHANNEL, describeUnreadableFormulas(Math.max(1, unreadable), 'not-taken'));
       console.warn('[Main] Saving the formula image failed:', err?.message || err);
+    }
+  }
+
+  /**
+   * The automatic capture's image of the formulas with no text (#645), saved
+   * and handed to the answer that pulled the capture. Never attached in the
+   * overlay: that answer has already copied its attachments, and in the tray
+   * the images would ride the next question. Opened before the first await,
+   * so the answer request, sent right after, finds it while the files are
+   * written. No screenshot when there is no image: the page is not on screen.
+   */
+  public async handFormulaImagesToAnswer(
+    images: Array<{ data: Buffer; ext: 'jpg' | 'png' | 'webp'; formulas?: [number, number] }>,
+    unreadable: number,
+  ): Promise<void> {
+    const shot = this.formulaScreenshots.open({ maxAgeMs: AUTO_FORMULA_IMAGE_MAX_AGE_MS });
+    try {
+      const paths = await this.screenshotHelper.addFormulaImages(images);
+      shot.settle(paths);
+      console.log(`[Main] Formula image(s) from the automatic capture: ${paths.length} for this answer${unreadable ? `, ${unreadable} formula(s) in none` : ''}`);
+    } catch (err: any) {
+      shot.settle(null);
+      console.warn('[Main] Saving the automatic capture\'s formula image failed:', err?.message || err);
     }
   }
 
@@ -10609,6 +10745,7 @@ if (agentUserData) {
 
 // Skipping the lock is what lets an agent instance run beside the developer's.
 const gotSingleInstanceLock = agentUserData ? true : app.requestSingleInstanceLock();
+_startupLogLock = gotSingleInstanceLock ? 'held' : 'lost';
 logStartupPhase('single-instance-lock', {
   gotLock: gotSingleInstanceLock,
   agentMode: Boolean(agentUserData),
@@ -10719,7 +10856,8 @@ async function initializeApp() {
       console.warn(
         `[Lifecycle] previous session ended unexpectedly: ` +
         `pid=${prev.pid} lastEvent=${prev.lastEvent} reason=${prev.quitReason ?? 'unknown'} ` +
-        `startedAt=${prev.startedAt} lastEventAt=${prev.lastEventAt}`
+        `startedAt=${prev.startedAt} lastEventAt=${prev.lastEventAt}` +
+        (prev.lastIncident ? ` lastIncident=${prev.lastIncident.event}@${prev.lastIncident.at}` : '')
       );
     }
   } catch (err) {

@@ -9,7 +9,7 @@
 import React, { useMemo, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { useT } from '../../i18n';
-import { SETTINGS_BTN, SETTINGS_INPUT, SETTINGS_WELL } from '../settings/SettingsRow';
+import { SETTINGS_BTN, SETTINGS_INPUT } from '../settings/SettingsRow';
 import { templateBlurb } from './modesCatalog';
 import type { TemplateCatalogEntry } from './modesTypes';
 
@@ -78,7 +78,7 @@ export const NewModeDialog: React.FC<Props> = ({ catalog, onCancel, onCreate, on
                             data-testid={`modes-template-${general.type}`}
                             disabled={busy !== null}
                             onClick={() => void create(general.type, t('New mode'))}
-                            className={`${SETTINGS_WELL} col-span-2 bg-bg-component p-3 text-left transition-colors hover:bg-bg-elevated disabled:opacity-60`}
+                            className={`col-span-2 rounded-xl bg-bg-component p-3 text-left transition-colors hover:bg-bg-elevated disabled:opacity-60`}
                         >
                             <div className="text-sm font-medium text-text-primary">{t('Start from empty mode')}</div>
                             <div className="mt-0.5 text-[11px] leading-relaxed text-text-tertiary">
@@ -93,7 +93,7 @@ export const NewModeDialog: React.FC<Props> = ({ catalog, onCancel, onCreate, on
                             data-testid={`modes-template-${entry.type}`}
                             disabled={busy !== null}
                             onClick={() => void create(entry.type, entry.label)}
-                            className={`${SETTINGS_WELL} bg-bg-component p-3 text-left transition-colors hover:bg-bg-elevated disabled:opacity-60`}
+                            className={`rounded-xl bg-bg-component p-3 text-left transition-colors hover:bg-bg-elevated disabled:opacity-60`}
                         >
                             <div className="text-sm font-medium text-text-primary">{entry.label}</div>
                             <div className="mt-0.5 text-[11px] leading-relaxed text-text-tertiary">

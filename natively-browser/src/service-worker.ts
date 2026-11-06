@@ -23,6 +23,7 @@ import { originPatternFromUrl } from './capture/originPattern';
 import { requestOriginPermission, requestAllSitesPermission, hasAllSitesPermission } from './capture/permissions';
 import { meetingTabsReport } from './meeting-tabs';
 import { formulaImageLimitsOf, type FormulaImageLimits } from './formula-sheet';
+import { openThemeWatch, toolbarIconFor } from './toolbar-icon';
 
 const STORAGE_KEY = 'pairing';
 const PAIR_PROBE_DOM = '__pair_probe__';
@@ -536,6 +537,11 @@ interface SmartExtractResult {
   blocked: boolean;
   /** Sanitized metadata for the desktop AI classifier (no body/secrets). */
   safeMetadata?: unknown;
+  /** Formulas with no text that no formula image shows (#645). */
+  unreadableFormulas?: number;
+  /** Image of the page's formulas with no text, as data URLs, and the formula numbers each shows (#645). */
+  formulaImages?: string[];
+  formulaImageRanges?: Array<[number, number]>;
 }
 
 interface SmartExtractOpts {
@@ -565,6 +571,9 @@ async function smartExtractFromTab(tabId: number, opts: SmartExtractOpts): Promi
     // Only send the flag when explicitly disabling coding (false); omitting it
     // keeps the content-script default of coding-enabled.
     codingEnabled: opts.codingEnabled,
+    // Formulas with no text are drawn only for a desktop that takes the images
+    // and gives an automatic capture's to its answer.
+    ...(desktopFormulaImages && desktopAutoFormulaImages && !opts.classifyOnly ? { formulaImages: desktopFormulaImages } : {}),
   })) as { ok: true; smart: SmartExtractResult } | { ok: false; error: string } | undefined;
   if (!response) throw new Error('No response from page');
   if (!response.ok) throw new Error(response.error || 'Smart extraction failed');
@@ -643,11 +652,17 @@ async function postSmartCapture(
     url: tab.url || '',
     source: 'smart-auto',
     pageType: smart.candidate.matchedCategory,
+    ...(smart.unreadableFormulas ? { unreadableFormulas: smart.unreadableFormulas } : {}),
   };
+  // As for ⌘/Ctrl+Y: extraction (and any formula image) is done, and the
+  // upload gets its own window on the desktop's deadline.
+  wsSend({ type: 'capture-ack', reqId, status: 'posting' });
   const outcome = await sendDom(pairing.token, pairing.port, smart.dom, {
     reqId,
     meta,
     envelope: smart.envelope ?? undefined,
+    formulaImages: smart.formulaImages,
+    formulaImageRanges: smart.formulaImageRanges,
   });
   if (outcome.kind === 'success') {
     return { kind: 'sent', chars: smart.dom.length, category: smart.candidate.matchedCategory };
@@ -778,6 +793,12 @@ let wsConnecting = false;
  * the images and keep text that points at them.
  */
 let desktopFormulaImages: FormulaImageLimits | null = null;
+/**
+ * Whether the connected desktop hands an automatic capture's formula images
+ * to the answer that pulled it. An older one drops them while its answer
+ * still reads `[formula N, see image]`, so then the automatic capture draws none.
+ */
+let desktopAutoFormulaImages = false;
 const desktopFeatureWaiters = new Set<() => void>();
 
 function flushDesktopFeatureWaiters(): void {
@@ -1007,6 +1028,7 @@ async function ensureWsConnected(): Promise<void> {
       } else if (msg.type === 'desktop-features') {
         desktopFormulaImages = formulaImageLimitsOf(msg.formulaImages);
         flushDesktopFeatureWaiters();
+        desktopAutoFormulaImages = msg.autoFormulaImages === true;
       } else if (msg.type === 'meeting-tabs-subscribe') {
         meetingTabsOn = msg.on === true;
         meetingTabsLast = '';
@@ -1020,6 +1042,7 @@ async function ensureWsConnected(): Promise<void> {
       if (ws === sock) {
         ws = null;
         desktopFormulaImages = null;
+        desktopAutoFormulaImages = false;
         flushDesktopFeatureWaiters();
       }
       // The desktop forgets this socket's tabs; the next hello asks again.
@@ -1154,6 +1177,15 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 chrome.runtime.onStartup.addListener(() => { void ensureWsConnected(); });
 chrome.runtime.onInstalled.addListener(() => { void ensureWsConnected(); });
+
+// The toolbar icon follows Chrome's theme (toolbar-icon.ts): the hidden theme
+// page reports light or dark, now and on each change. Opened on every wake; a
+// second open is refused by Chrome, which is fine.
+void openThemeWatch(chrome.offscreen);
+chrome.runtime.onMessage.addListener((msg: { type?: string; dark?: unknown }, sender) => {
+  if (msg?.type !== 'toolbar-theme' || sender.id !== chrome.runtime.id) return;
+  chrome.action.setIcon({ path: toolbarIconFor(msg.dark === true) }).catch(() => {});
+});
 
 // Wake-on-browser-interaction: these fire whenever the user touches Chrome, which
 // is exactly the moment right before they'd trigger a capture. Each wakes a dead

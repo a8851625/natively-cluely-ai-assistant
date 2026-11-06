@@ -304,14 +304,19 @@ describe('each note template has its own icon in the gallery (2026-10-21)', () =
         // No rule under the title; the search is a filled pill with a clear button.
         assert.doesNotMatch(gallery, /pl-6 pr-1\.5" style=\{\{ borderBottom/);
         assert.match(gallery, /className="np-search h-8 [^"]*rounded-full"/);
-        assert.match(gallery, /aria-label="Clear search" onClick=\{\(\) => onQuery\(''\)\}/);
+        // The clear button's label goes through the translator on this line (the
+        // local zh line wraps copy in t()/tr()), so the aria-label is matched
+        // either as a literal or as a translated expression; what must hold is
+        // the button exists and clicking it clears the query.
+        assert.match(gallery, /aria-label=\{(?:tr|t)\('Clear search'\)\}|aria-label="Clear search"/);
+        assert.match(gallery, /onClick=\{\(\) => onQuery\(''\)\}/);
         assert.match(css, /\.np-search:focus-within \{/);
         const light = css.match(/\.notepad \.np-lavender \{([^}]*)\}/)?.[1] ?? '';
         const dark = css.match(/\.notepad\[data-np-theme="dark"\] \.np-lavender \{([^}]*)\}/)?.[1] ?? '';
-        assert.match(light, /--np-surface: #faf8fe;/);
-        assert.match(light, /--np-ink: #2e2a38;/);
-        assert.match(light, /--np-ring: #ded4eb;/);
-        assert.match(light, /--np-cta: #8050d4;/);
+        assert.match(light, /--np-surface: #fcfcfd;/);
+        assert.match(light, /--np-ink: #1d1d1f;/);
+        assert.match(light, /--np-ring: #e3e3e8;/);
+        assert.match(light, /--np-cta: #4a5bd4;/);
         for (const v of ['surface', 'ink', 'ring', 'wash', 'tile', 'tile-ink', 'card', 'cta', 'cta-ink', 'scrim']) {
             assert.match(light, new RegExp(`--np-${v}:`), `light ${v}`);
             assert.match(dark, new RegExp(`--np-${v}:`), `dark ${v}`);

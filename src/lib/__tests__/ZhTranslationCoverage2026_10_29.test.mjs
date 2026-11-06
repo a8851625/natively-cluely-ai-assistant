@@ -38,6 +38,7 @@ const ZH = {
     ...loadDict('src/i18n.zh.generated.ts'),
     ...loadDict('src/i18n.zh.generated2.ts'),
     ...loadDict('src/i18n.zh.generated3.ts'),
+    ...loadDict('src/i18n.zh.generated4.ts'),
 };
 
 // ── Call-site extraction ────────────────────────────────────────────────────

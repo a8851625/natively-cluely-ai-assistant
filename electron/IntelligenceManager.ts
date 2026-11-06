@@ -85,6 +85,8 @@ export class IntelligenceManager extends EventEmitter {
             'follow_up_questions_update', 'follow_up_questions_token',
             // The live helpers: What did I miss?, Define, Sound smart.
             'live_helper', 'live_helper_token',
+            // The user's own buttons (llm/customButtons.ts).
+            'custom_button', 'custom_button_token',
             'manual_answer_started', 'manual_answer_result',
             'mode_changed', 'error',
             // Sprint 7: dedicated channel for negotiation coaching payloads.
@@ -218,8 +220,8 @@ export class IntelligenceManager extends EventEmitter {
     }
 
     /** The running meeting's whole transcript (kept across the reset shortcut), for in-meeting search. */
-    getCurrentMeetingFullTranscript(): Array<{ speaker: string; text: string; timestamp: number }> {
-        return this.session.getPersistableTranscript().map(s => ({ speaker: s.speaker, text: s.text, timestamp: s.timestamp }));
+    getCurrentMeetingFullTranscript(): Array<{ speaker: string; text: string; timestamp: number; origin?: string }> {
+        return this.session.getPersistableTranscript().map(s => ({ speaker: s.speaker, text: s.text, timestamp: s.timestamp, origin: s.origin }));
     }
 
     /** `imagePaths`: the screenshots the answer used; the Usage tab shows previews of them. */
@@ -369,6 +371,10 @@ export class IntelligenceManager extends EventEmitter {
         return this.engine.runLiveHelper(action, opts);
     }
 
+    async runCustomButton(button: import('./llm/promptSystemV2').CustomButtonActionV2, imagePaths?: string[], readSeconds?: number): Promise<string | null> {
+        return this.engine.runCustomButton(button, imagePaths, readSeconds);
+    }
+
     async runManualAnswer(question: string): Promise<string | null> {
         return this.engine.runManualAnswer(question);
     }
@@ -441,8 +447,18 @@ export class IntelligenceManager extends EventEmitter {
     }
 
     /** A meeting started: its transcript is kept on disk as it grows (LiveMeetingJournal). */
-    beginLiveMeeting(startedAt?: number): string {
-        return this.persistence.beginLiveMeeting(startedAt);
+    beginLiveMeeting(startedAt?: number, opts?: Parameters<MeetingPersistence['beginLiveMeeting']>[1]): string {
+        return this.persistence.beginLiveMeeting(startedAt, opts);
+    }
+
+    /** A saved meeting, read for a resume (MeetingPersistence.loadResumeBase). */
+    loadResumeBase(meetingId: string): ReturnType<MeetingPersistence['loadResumeBase']> {
+        return this.persistence.loadResumeBase(meetingId);
+    }
+
+    /** The saved meeting the running session continues, or null. */
+    get resumedMeetingId(): string | null {
+        return this.persistence.resumedMeetingId;
     }
 
     /**

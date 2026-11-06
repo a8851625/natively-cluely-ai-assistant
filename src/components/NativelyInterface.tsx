@@ -18,19 +18,20 @@ import {
   MessageSquare,
   Mic,
   MicOff,
-  NotebookPen,
   Pencil,
   Quote,
   RefreshCw,
+  Repeat2,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
 import {
   mergeRollingTranscriptFinal,
-  mergeRollingTranscriptPartial,
+  rollingTranscriptWithPartial,
 } from '../../electron/utils/rollingTranscriptState.ts';
-import { categorizeSttError } from '../lib/sttErrorMapper';
+import { categorizeSttError, sttConnectionCause, sttLocalModelCause } from '../lib/sttErrorMapper';
 import { splitGistLine, splitGistLineStreaming, collapseBlockGaps } from '../lib/displayMarkup';
+import { resumedChatMessages, resumedDirectHistory } from '../lib/resumedChat.mjs';
 
 import type { SkillSummary } from '../types/electron';
 import { copyText } from '../lib/copyText';
@@ -372,10 +373,20 @@ import {
   REVEAL_WORD_CLASS,
 } from '../lib/textRevealAnimation.mjs';
 import SyntaxHighlighter from 'react-syntax-highlighter/dist/esm/prism-light';
-import { oneLight } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { oneLight as oneLightBase } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { vividDarkCodeTheme, VIVID_DARK_LINE_NUMBER_COLOR } from '../lib/codeTheme';
 
 registerPrismLanguages();
+
+// oneLight paints hsl(230,1%,98%) on the <pre> and <code>. customStyle only
+// clears the <pre>; the <code> kept its fill, and in the streaming view (one
+// inline highlighter per line) that showed as a white bar behind every line.
+// The code block's own card is the background, so the theme's must go.
+const oneLight = {
+  ...oneLightBase,
+  'code[class*="language-"]': { ...oneLightBase['code[class*="language-"]'], background: 'transparent' },
+  'pre[class*="language-"]': { ...oneLightBase['pre[class*="language-"]'], background: 'transparent' },
+};
 // import { ModelSelector } from './ui/ModelSelector'; // REMOVED
 import 'katex/dist/katex.min.css';
 import DOMPurify from 'dompurify';
@@ -411,8 +422,9 @@ import { useShortcuts } from '../hooks/useShortcuts';
 import ClickThroughToggle from './ui/ClickThroughToggle';
 import { analytics, detectProviderType, reportAnswerFailed } from '../lib/analytics/analytics.service';
 import { interfaceThemeSurface, isCssOwnedInterfaceTheme, type MeetingInterfaceTheme } from '../lib/meetingInterfaceTheme';
-import { overlayRowOf, useOverlayButtonOrder, type OverlayButtonId } from '../lib/overlayButtonOrder';
-import { OVERLAY_BUTTONS } from './overlay/overlayButtons';
+import { isBuiltinOverlayButtonId, overlayRowOf, useOverlayButtonOrder, type BuiltinOverlayButtonId, type OverlayButtonId } from '../lib/overlayButtonOrder';
+import { getOverlayCustomButton, overlayCustomReadMinutes, useOverlayCustomButtons, type OverlayCustomButtonId } from '../lib/overlayCustomButtons';
+import { OVERLAY_BUTTONS, overlayButtonFace } from './overlay/overlayButtons';
 import {
   getGlassOverlayAppearance,
   getOverlayAppearance,
@@ -420,7 +432,7 @@ import {
 } from '../lib/overlayAppearance';
 import { NegotiationCoachingCard } from '../premium';
 import type { DynamicActionPayload } from '../types/electron';
-import { getCodexCliModelDisplayName, gatewayModelLabel, litellmModelLabel } from '../utils/modelUtils';
+import { getCodexCliModelDisplayName, gatewayModelLabel, litellmModelLabel, modelChipName } from '../utils/modelUtils';
 import { getModifierSymbol, isMac, isWindows } from '../utils/platformUtils';
 import { acceleratorToKeys } from '../utils/keyboardUtils';
 import { DynamicActionBar } from './dynamic-actions/DynamicActionBar';
@@ -1430,9 +1442,12 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
   overlayOpacity = OVERLAY_OPACITY_DEFAULT,
   interfaceTheme = 'default',
 }) => {
-  // Lavender paints a light panel under the dark app theme too, so every
-  // light/dark class choice below follows the panel, not the app.
-  const isLightTheme = interfaceTheme === 'lavender' || useResolvedTheme() === 'light';
+  // Every style but glass and modern follows the app's light or dark theme
+  // (Lavender too since 2026-10-31). The hook runs on every render: behind `||` it was skipped while the theme
+  // was Lavender, and flipping in or out of Lavender changed the hook order
+  // and crashed the overlay ("Should have a queue").
+  const resolvedTheme = useResolvedTheme();
+  const isLightTheme = resolvedTheme === 'light';
   const isGlassTheme = interfaceTheme === 'liquid-glass';
   const isModernTheme = interfaceTheme === 'modern';
   // Lavender draws its buttons with the website hero's own button
@@ -1492,7 +1507,6 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // The notes window (`?window=notes`) is open: the Notes button shows it.
-  const [isNotesOpen, setIsNotesOpen] = useState(false);
   const [conversationContext, setConversationContext] = useState<string>('');
   const [isManualRecording, setIsManualRecording] = useState(false);
   const isRecordingRef = useRef(false); // Ref to track recording state (avoids stale closure)
@@ -2010,6 +2024,9 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
   // Debounce partial STT ticks so answer/solution rows are not drowned in re-renders.
   const rollingPartialDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingRollingPartialRef = useRef<string | null>(null);
+  // The bar's committed finals; the live partial is drawn after them and never
+  // committed (see rollingTranscriptWithPartial).
+  const rollingCommittedRef = useRef('');
   const interviewerSpeakingRef = useRef(false);
   const pinAnswerPanelRef = useRef<() => void>(() => {});
   const [voiceInput, setVoiceInput] = useState(''); // Accumulated user voice input
@@ -2400,11 +2417,12 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
     };
   }, []);
 
-  // Glass and modern keep a dark panel under the light app theme and lavender
-  // a light one under the dark theme; only default follows the app.
+  // Glass and modern keep a dark panel under the light app theme; default and
+  // lavender follow the app.
   const isLightSurface = interfaceThemeSurface(interfaceTheme, isLightTheme ? 'light' : 'dark') === 'light';
-  // Lavender keeps the website theme's dark code well on its light panel.
-  const useDarkCodeTheme = !isLightSurface || isLavenderTheme;
+  // Lavender's code sits in a well of its own glass (2026-10-30), light or
+  // dark with the app (2026-10-31), so it takes the matching code theme.
+  const useDarkCodeTheme = !isLightSurface;
   const codeTheme = useDarkCodeTheme ? vividDarkCodeTheme : oneLight;
   const codeLineNumberColor = useDarkCodeTheme ? VIVID_DARK_LINE_NUMBER_COLOR : 'rgba(24,24,24,0.4)';
   // Header only shows for the light theme and the modern/glass interface
@@ -4271,6 +4289,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
   // width). English with Inter and the default five fits the default.
   const overlayButtonOrder = useOverlayButtonOrder();
   const overlayRow = overlayRowOf(overlayButtonOrder);
+  const overlayCustomButtons = useOverlayCustomButtons();
   const quickRowRef = useRef<HTMLDivElement>(null);
   const rowMeasureRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -5389,15 +5408,6 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
     return () => unsubscribe();
   }, []);
 
-  // The notes window opens and closes outside this window (its own X, a
-  // meeting starting); follow it so the Notes button reads right.
-  useEffect(() => {
-    let cancelled = false;
-    window.electronAPI?.notesWindowIsOpen?.().then((open) => { if (!cancelled) setIsNotesOpen(open === true); }).catch(() => {});
-    const off = window.electronAPI?.onNotesWindowVisibility?.((open) => setIsNotesOpen(open));
-    return () => { cancelled = true; off?.(); };
-  }, []);
-
   // Sync Window Visibility with Expanded State
   useEffect(() => {
     // First run is the mount-time isExpanded=true. main.startMeeting() has
@@ -5515,7 +5525,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
   // Session Reset Listener - Clears UI when a NEW meeting starts
   useEffect(() => {
     if (!window.electronAPI?.onSessionReset) return;
-    const unsubscribe = window.electronAPI.onSessionReset(() => {
+    const unsubscribe = window.electronAPI.onSessionReset((payload) => {
       console.log('[NativelyInterface] Resetting session state...');
       window.electronAPI?.cancelChatStream?.();
       chatStreamIdRef.current = null;
@@ -5598,6 +5608,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
         rollingPartialDebounceRef.current = null;
       }
       pendingRollingPartialRef.current = null;
+      rollingCommittedRef.current = '';
       setRollingTranscript('');
       setIsInterviewerSpeaking(false);
       interviewerSpeakingRef.current = false;
@@ -5609,6 +5620,14 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
       setSttUserError('');
       setSttInterviewerError('');
       // Optionally reset connection status if needed, but connection persists
+
+      // A resumed meeting (2026-11-03): its earlier answers come back, so the
+      // chat carries on where it stopped; typed turns are Direct history too.
+      const earlier = resumedChatMessages(payload?.resumedChat);
+      if (earlier.length > 0) {
+        setMessages(earlier as Message[]);
+        directAssistHistoryRef.current = resumedDirectHistory(payload?.resumedChat);
+      }
 
       // Track new conversation/session if applicable?
       // Actually 'app_opened' is global, 'assistant_started' is overlay.
@@ -7574,7 +7593,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
       const text = pendingRollingPartialRef.current;
       pendingRollingPartialRef.current = null;
       if (text == null) return;
-      setRollingTranscript((prev) => mergeRollingTranscriptPartial(prev, text));
+      setRollingTranscript(rollingTranscriptWithPartial(rollingCommittedRef.current, text));
     }, 80);
   }, []);
 
@@ -7586,7 +7605,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
     const text = pendingRollingPartialRef.current;
     pendingRollingPartialRef.current = null;
     if (text != null) {
-      setRollingTranscript((prev) => mergeRollingTranscriptPartial(prev, text));
+      setRollingTranscript(rollingTranscriptWithPartial(rollingCommittedRef.current, text));
     }
   }, []);
 
@@ -7670,7 +7689,8 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
         flushRollingPartialPreview();
         interviewerSpeakingRef.current = false;
         setIsInterviewerSpeaking(false);
-        setRollingTranscript((prev) => mergeRollingTranscriptFinal(prev, transcript.text));
+        rollingCommittedRef.current = mergeRollingTranscriptFinal(rollingCommittedRef.current, transcript.text);
+        setRollingTranscript(rollingCommittedRef.current);
 
         setTimeout(() => {
           setIsInterviewerSpeaking(false);
@@ -8106,8 +8126,8 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
     );
   }, [attachedContext]);
 
-  // Phone Mirror's Answer chip toggles this recording, so the phone shows it
-  // too: Stop while recording, Answer again once it ends. Reported on every
+  // Phone Mirror's Speak chip toggles this recording, so the phone shows it
+  // too: Stop while recording, Speak again once it ends. Reported on every
   // change, including the false on mount, which clears one left by a reload.
   useEffect(() => {
     window.electronAPI?.phoneMirrorSetRecording?.(isManualRecording);
@@ -8266,7 +8286,7 @@ const NativelyInterface: React.FC<NativelyInterfaceProps> = ({
         // segments so a question split by punctuation/finalization stays intact,
         // while older meeting discussion cannot become the primary request.
         const directTranscriptSnapshot = pendingRollingPartialRef.current
-          ? mergeRollingTranscriptPartial(rollingTranscript, pendingRollingPartialRef.current)
+          ? rollingTranscriptWithPartial(rollingCommittedRef.current, pendingRollingPartialRef.current)
           : rollingTranscript;
         const interviewerRequest = directTranscriptSnapshot
           .split('  ·  ')
@@ -9706,6 +9726,55 @@ Provide only the answer, nothing else.`;
       });
     } finally {
       manualSubmitInFlightRef.current = false;
+    }
+  };
+
+  // A button the user made (Settings › Overlay › Your buttons). It runs like
+  // Define: main puts the button's contract in the system prompt as its
+  // action, with the mode and the core rules, and reads the conversation as
+  // context (llm/customButtons.ts); the answer streams into Recap's card.
+  // With "Screenshot every press" the screen goes with it.
+  const handleCustomButton = async (id: OverlayCustomButtonId) => {
+    const button = getOverlayCustomButton(id);
+    if (!button) return;
+    const actionKey = `custom:${button.id}`;
+    if (!tryBeginOverlayAction(actionKey)) return;
+    setIsExpanded(true);
+    setIsProcessing(true);
+    setMessages((prev) => [
+      ...prev,
+      { id: genMessageId(), role: 'user', text: button.name, isQuickActionLabel: true },
+    ]);
+    analytics.trackCommandExecuted(button.screenshot ? 'custom_button_screenshot' : 'custom_button');
+
+    try {
+      const imagePaths: string[] = [];
+      if (button.screenshot) {
+        try {
+          const shot = await window.electronAPI.takeScreenshot();
+          if (shot?.path) imagePaths.push(shot.path);
+        } catch (err) {
+          console.warn('[custom-button] screenshot failed; asking without it:', err);
+        }
+      }
+      prepareIntelligenceStreamPlaceholder('recap');
+      // A button saved before its contract was written runs on the user's own words.
+      const instruction = button.instruction || button.prompt;
+      const result = await window.electronAPI.generateCustomButton?.({ name: button.name, instruction, imagePaths, readMinutes: overlayCustomReadMinutes(button.prompt) });
+      if (!result?.text) discardEmptyPlaceholder('recap');
+    } catch (err) {
+      discardEmptyPlaceholder('recap');
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: genMessageId(),
+          role: 'system',
+          ...failedLine(err),
+        },
+      ]);
+    } finally {
+      endOverlayAction(actionKey);
+      setIsProcessing(false);
     }
   };
 
@@ -11326,33 +11395,65 @@ Provide only the answer, nothing else.`;
   const shouldShowSttSummaryPill =
     !sttNotConfigured && !sttFailed && !sttReconnecting &&
     (sttUserStatus === 'preparing' || sttInterviewerStatus === 'preparing');
-  const sttStatusBanner: { tone: 'warning' | 'error'; title: string; message: string } | null =
+  // What to do depends on why. An antivirus re-signing the connection, or a
+  // firewall dropping it, was reported as "check your provider and its key",
+  // and a customer reinstalled ten times before turning their antivirus off.
+  const sttConnectionAdvice = (() => {
+    const cause = sttConnectionCause([
+      sttUserStatus === 'failed' || sttUserStatus === 'reconnecting' ? sttUserError : '',
+      sttInterviewerStatus === 'failed' || sttInterviewerStatus === 'reconnecting' ? sttInterviewerError : '',
+    ]);
+    if (cause === 'secure-connection') return t('Antivirus HTTPS scanning or a network filter is intercepting the connection. Allow Natively in your antivirus, or turn off its HTTPS scanning for Natively.');
+    if (cause === 'unreachable') return t('Natively cannot reach the transcription service. Check your internet connection, and allow Natively in your firewall and antivirus.');
+    return null;
+  })();
+  // An on-device model has no key and no provider to check (issue #707: a
+  // Windows user whose local model was refused for memory was told to check
+  // its key). A local failure is terminal, so only a failed channel counts.
+  const sttLocalModelAdvice = (() => {
+    const cause = sttLocalModelCause([
+      sttUserStatus === 'failed' ? sttUserError : '',
+      sttInterviewerStatus === 'failed' ? sttInterviewerError : '',
+    ]);
+    if (cause === 'memory') return t('There is not enough free memory for the local model. Close other apps, or choose a smaller local model in Settings → Audio.');
+    if (cause === 'download') return t('The local model has not finished downloading. Check your internet connection, or choose a cloud provider in Settings → Audio.');
+    if (cause === 'model') return t('The local speech model stopped. Restart the meeting, or choose another local model or a cloud provider in Settings → Audio.');
+    return null;
+  })();
+  // kind picks the icon: only a live reconnect spins. The backup-provider
+  // banner used the same spinning arrows, and a user whose key was stopped for
+  // quota reported it as "transcription reconnecting" (user log 2026-11-03).
+  const sttStatusBanner: { tone: 'warning' | 'error'; kind: 'stopped' | 'reconnecting' | 'backup'; title: string; message: string } | null =
     sttNotConfigured
       ? null
       : sttFailed && !audioFailureBannerActive
         ? {
             tone: 'error',
+            kind: 'stopped',
             title: t('Transcription Stopped'),
             // Two lines: what stopped, then what to do. The provider's own
             // error (often a bare status like "401 Unauthorized") is not
             // shown; a code on screen explains nothing.
-            message:
+            message: `${
               sttUserStatus === 'failed' && sttInterviewerStatus === 'failed'
-                ? t('Nothing is being transcribed right now. Check your transcription provider and its key in Settings.')
+                ? t('Nothing is being transcribed right now.')
                 : sttUserStatus === 'failed'
-                  ? t('Your microphone is no longer being transcribed. Check your transcription provider and its key in Settings.')
-                  : t('Interviewer audio is no longer being transcribed. Check your transcription provider and its key in Settings.'),
+                  ? t('Your microphone is no longer being transcribed.')
+                  : t('Interviewer audio is no longer being transcribed.')
+            } ${sttConnectionAdvice ?? sttLocalModelAdvice ?? t('Check your transcription provider and its key in Settings.')}`,
           }
         : sttReconnecting && !sttFailed
           ? {
               tone: 'warning',
+              kind: 'reconnecting',
               title: t('Transcription Reconnecting'),
-              message: t('The connection to your speech-to-text provider dropped. Retrying.'),
+              message: `${t('The connection to your speech-to-text provider dropped.')} ${sttConnectionAdvice ?? t('Retrying.')}`,
             }
           : (sttUserFallback || sttInterviewerFallback)
             ? {
                 // Still transcribing, on a stand-in: a warning, not a failure.
                 tone: 'warning',
+                kind: 'backup',
                 title: t('Transcribing on a backup provider'),
                 message: sttInterviewerFallback || sttUserFallback,
               }
@@ -11908,7 +12009,11 @@ Provide only the answer, nothing else.`;
                 <OverlayBanner
                   className="mx-4"
                   tone={sttStatusBanner.tone}
-                  icon={sttStatusBanner.tone === 'error' ? <MicOff strokeWidth={2.2} /> : <RefreshCw strokeWidth={2.2} className="ov-banner-spin" />}
+                  icon={sttStatusBanner.kind === 'stopped'
+                    ? <MicOff strokeWidth={2.2} />
+                    : sttStatusBanner.kind === 'backup'
+                      ? <Repeat2 strokeWidth={2.2} />
+                      : <RefreshCw strokeWidth={2.2} className="ov-banner-spin" />}
                   title={sttStatusBanner.title}
                   message={sttStatusBanner.message}
                   actions={sttStatusBanner.tone === 'error' ? (
@@ -12179,7 +12284,7 @@ Provide only the answer, nothing else.`;
               {showAnswerPanel && (
                 <motion.div
                   ref={scrollContainerRef}
-                  className={`relative flex-1 overflow-y-auto overflow-x-hidden ${hasChatContent ? 'p-4 space-y-3' : 'p-0'} no-drag isolate`}
+                  className={`overlay-scroll-fade relative flex-1 overflow-y-auto overflow-x-hidden ${hasChatContent ? 'p-4 space-y-3' : 'p-0'} no-drag isolate`}
                   layout={false}
                   style={{ scrollbarWidth: 'none', maxHeight: scrollMaxH, minHeight: scrollMinH }}
                 >
@@ -12510,13 +12615,15 @@ Provide only the answer, nothing else.`;
                   // Lavender: the hero's paper pill (hlg-*), icon and label in its slots.
                   const heroChipClass = 'hlg-sm hero-pill hero-hotkey interaction-base interaction-press shrink-0';
                   const heroIcon = (Icon: typeof Mic) => <Icon size={11} strokeWidth={2} />;
+                  // From the shared list, so Settings › Overlay draws the same word.
+                  const answerLabel = t(OVERLAY_BUTTONS.answer.label);
                   const answerContent = isLavenderTheme ? (
                     <span className="flex items-center gap-[5px]">
-                      <Mic size={11} strokeWidth={2} /> {t('Answer')}
+                      <Mic size={11} strokeWidth={2} /> {answerLabel}
                     </span>
                   ) : (
                     <span className="flex items-center gap-1.5">
-                      <Mic className="w-3 h-3 opacity-70" /> {t('Answer')}
+                      <Mic className="w-3 h-3 opacity-70" /> {answerLabel}
                     </span>
                   );
                   const stopContent = (
@@ -12525,14 +12632,18 @@ Provide only the answer, nothing else.`;
                       {t('Stop')}
                     </span>
                   );
-                  // The Answer chip is as wide as its wider label: invisible
-                  // copies of both share one grid cell with the live label, so
-                  // Answer ⇄ Stop never slides the rest of the row sideways.
+                  // The voice chip is labelled Speak, not Answer (the owner,
+                  // 2026-10-30: "Answer" sat beside "What to answer?"; you
+                  // speak a question and Stop sends it). Speak over Ask for
+                  // its width, close to Answer's. It is as wide as its wider
+                  // label: invisible copies of both share one grid cell with
+                  // the live label, so Speak ⇄ Stop never slides the rest of
+                  // the row sideways.
                   const answerSizers = (
                     <>
                       <span className="ov-chip-sizer flex items-center gap-1.5" aria-hidden>
                         <span className="w-3 h-3 shrink-0" />
-                        {ghost(t('Answer'))}
+                        {ghost(answerLabel)}
                       </span>
                       <span className="ov-chip-sizer flex items-center gap-1.5" aria-hidden>
                         <span className="w-1.5 h-1.5 shrink-0" />
@@ -12546,7 +12657,7 @@ Provide only the answer, nothing else.`;
                   // not buttons, and CSS-drawn labels.
                   const measureChip = (id: OverlayButtonId) => {
                     if (isLavenderTheme) {
-                      const { Icon, label } = OVERLAY_BUTTONS[id];
+                      const { Icon, label } = overlayButtonFace(id, t, overlayCustomButtons);
                       return (
                         <span key={id} className={`hlg-button hlg-lavender ${heroChipClass}${id === 'answer' ? ' min-w-[74px]' : ''}`}>
                           <span className="hlg-content">
@@ -12555,7 +12666,7 @@ Provide only the answer, nothing else.`;
                             ) : (
                               <>
                                 <span className="hlg-icon">{heroIcon(Icon)}</span>
-                                <span className="hlg-label">{ghost(t(label))}</span>
+                                <span className="hlg-label">{ghost(label)}</span>
                               </>
                             )}
                           </span>
@@ -12569,15 +12680,15 @@ Provide only the answer, nothing else.`;
                         </span>
                       );
                     }
-                    const { Icon, label } = OVERLAY_BUTTONS[id];
+                    const { Icon, label } = overlayButtonFace(id, t, overlayCustomButtons);
                     return (
                       <span key={id} className={chipClass} style={appearance.chipStyle}>
                         <Icon className="w-3 h-3 opacity-70" />
-                        {ghost(t(label))}
+                        {ghost(label)}
                       </span>
                     );
                   };
-                  const onChip: Record<Exclude<OverlayButtonId, 'answer'>, () => void> = {
+                  const onBuiltinChip: Record<Exclude<BuiltinOverlayButtonId, 'answer'>, () => void> = {
                     what_to_answer: () => void handleWhatToSay(),
                     clarify: () => void handleClarify(),
                     recap: () => void handleRecap(),
@@ -12587,6 +12698,9 @@ Provide only the answer, nothing else.`;
                     define: () => void handleLiveHelper('define'),
                     sound_smart: () => void handleLiveHelper('sound_smart'),
                   };
+                  // The user's own buttons ask their prompt (handleCustomButton).
+                  const onChip = (id: Exclude<OverlayButtonId, 'answer'>) =>
+                    isBuiltinOverlayButtonId(id) ? onBuiltinChip[id] : () => void handleCustomButton(id);
                   const chip = (id: OverlayButtonId) => {
                     if (isLavenderTheme) {
                       if (id === 'answer') {
@@ -12608,10 +12722,10 @@ Provide only the answer, nothing else.`;
                           </HeroGlassButton>
                         );
                       }
-                      const { Icon, label } = OVERLAY_BUTTONS[id];
+                      const { Icon, label } = overlayButtonFace(id, t, overlayCustomButtons);
                       return (
-                        <HeroGlassButton key={id} variant="lavender" onClick={onChip[id]} className={heroChipClass} icon={heroIcon(Icon)}>
-                          {t(label)}
+                        <HeroGlassButton key={id} variant="lavender" onClick={onChip(id)} className={heroChipClass} icon={heroIcon(Icon)}>
+                          {label}
                         </HeroGlassButton>
                       );
                     }
@@ -12634,10 +12748,10 @@ Provide only the answer, nothing else.`;
                         </button>
                       );
                     }
-                    const { Icon, label } = OVERLAY_BUTTONS[id];
+                    const { Icon, label } = overlayButtonFace(id, t, overlayCustomButtons);
                     return (
-                      <button key={id} onClick={onChip[id]} className={chipClass} style={appearance.chipStyle}>
-                        <Icon className="w-3 h-3 opacity-70" /> {t(label)}
+                      <button key={id} onClick={onChip(id)} className={chipClass} style={appearance.chipStyle}>
+                        <Icon className="w-3 h-3 opacity-70" /> {label}
                       </button>
                     );
                   };
@@ -12831,9 +12945,6 @@ Provide only the answer, nothing else.`;
                   {/* Custom Rich Placeholder */}
                   {!inputValue && (
                     <div className="absolute inset-x-3 top-1/2 -translate-y-1/2 min-w-0 overflow-hidden whitespace-nowrap pointer-events-none text-[13px] overlay-text-muted">
-                      {isLavenderTheme ? (
-                      <span className="overlay-input-placeholder-full">{t('Ask anything on screen or conversation')}</span>
-                      ) : (
                       <span className="overlay-input-placeholder-full inline-flex items-center gap-1.5">
                         <span>{t('Ask anything on screen or conversation, or')}</span>
                       <span className="flex items-center gap-1 opacity-80">
@@ -12853,7 +12964,6 @@ Provide only the answer, nothing else.`;
                       </span>
                       <span>{t('for selective screenshot')}</span>
                       </span>
-                      )}
                       <span className="overlay-input-placeholder-compact">{t('Ask anything…')}</span>
                     </div>
                   )}
@@ -12900,7 +13010,9 @@ Provide only the answer, nothing else.`;
                       {isLavenderTheme && <span className="hlg-lens" aria-hidden="true" />}
                       <span className={isLavenderTheme ? 'hlg-content' : 'contents'}>
                       <ModelSelectorLabel>
-                        {(() => {
+                        {/* The model's own name only, in every style: no
+                            provider, no prefix, no slug (modelChipName). */}
+                        {modelChipName((() => {
                           const m = currentModel;
                           const codexCliName = getCodexCliModelDisplayName(m);
                           if (codexCliName) return codexCliName;
@@ -12955,7 +13067,7 @@ Provide only the answer, nothing else.`;
                           // Retired 2026-09-10; DeepSeek serves it as deepseek-flash (V4.1).
                           if (m === 'deepseek-v4-flash') return 'DeepSeek V4.1 Flash';
                           return m;
-                        })()}
+                        })())}
                       </ModelSelectorLabel>
                       {isLavenderTheme ? (
                         <svg className="shrink-0" width="8" height="8" viewBox="0 0 10 10" fill="none" aria-hidden="true"><path d="M3 4l2 2 2-2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round"/></svg>
@@ -12998,23 +13110,9 @@ Provide only the answer, nothing else.`;
                       </button>
                     </div>
 
-                    {/* Notes: the notes window, where the user types their own notes for
-                        this meeting; they go into the meeting notes at Stop. Lavender's
-                        row is the hero's, without Notes and Passthrough (owner request);
-                        passthrough keeps its global shortcut there. */}
-                    {!isLavenderTheme && (<>
-                    <div className="relative">
-                      <button
-                        onClick={() => { void window.electronAPI?.notesWindowToggle?.(); }}
-                        data-state={isNotesOpen ? 'open' : undefined}
-                        aria-label={t('Notes')}
-                        aria-pressed={isNotesOpen}
-                        className="w-7 h-7 rounded-[9px] flex items-center justify-center interaction-base interaction-press overlay-bare-icon"
-                      >
-                        <NotebookPen className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-
+                    {/* No Notes button in any style (the owner, 2026-10-30): the
+                        notepad is reached from Settings › Overlay, so the row keeps
+                        settings and click-through only. */}
                     {/* Mouse Passthrough Toggle. Opens into a pill with the
                         exit hotkey when turned on — once click-through is on
                         this button can no longer be clicked, so the hotkey is
@@ -13032,7 +13130,6 @@ Provide only the answer, nothing else.`;
                         ariaLabel={t('Toggle Mouse Passthrough')}
                       />
                     </div>
-                    </>)}
                   </div>
 
                   {isLavenderTheme ? (

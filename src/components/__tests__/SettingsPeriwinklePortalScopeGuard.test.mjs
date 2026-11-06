@@ -39,7 +39,6 @@ const REPO_ROOT = resolve(__dirname, '../../..');
 // its CSS custom properties via normal ancestry.
 const GUARDED_FILES = [
   'src/components/SettingsOverlay.tsx',
-  'src/components/settings/AboutYouSettings.tsx',
   'src/components/settings/AIProvidersSettings.tsx',
   'src/components/settings/CalendarSettings.tsx',
   'src/components/settings/ConnectionsSettings.tsx',
@@ -60,6 +59,7 @@ const GUARDED_FILES = [
   'src/components/settings/ModesSettings.tsx',
   'src/components/settings/NativelyApiSettings.tsx',
   'src/components/settings/NativelyProSettings.tsx',
+  'src/components/settings/OverlayCustomButtons.tsx',
   'src/components/settings/OverlayMockup.tsx',
   'src/components/settings/OverlaySettings.tsx',
   'src/components/settings/PhoneMirrorSettings.tsx',

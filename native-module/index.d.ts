@@ -12,6 +12,11 @@ export declare class MicrophoneCapture {
    * diagnostics and HFP/Bluetooth-degradation detection only.
    */
   getNativeSampleRate(): number
+  /**
+   * Channels the device delivers before one is kept (2-4 on many laptop
+   * mic arrays) — diagnostics only; the emitted PCM is always mono.
+   */
+  getChannelCount(): number
   start(callback: ((err: Error | null, arg: Buffer) => any), onSpeechEnded?: (((err: Error | null, arg: boolean) => any)) | undefined | null, onSpeechEdge?: (((err: Error | null, arg: SpeechEdgeEvent) => any)) | undefined | null): void
   stop(): void
 }
@@ -266,6 +271,13 @@ export interface CapturedKey {
  * file even on network failure (fail-safe: local removal always happens).
  */
 export declare function deactivateDodoKey(licenseKey: string, instanceId: string): Promise<unknown>
+
+/**
+ * Make the BrowserWindow whose handle is passed in (getNativeWindowHandle())
+ * answer WM_MOUSEACTIVATE with MA_NOACTIVATE. Idempotent. Returns whether the
+ * window is now subclassed.
+ */
+export declare function deliverClicksWithoutActivation(handle: Buffer): boolean
 
 /**
  * The occurrences overlapping [start_ms, end_ms]; null without full access or

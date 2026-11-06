@@ -77,6 +77,20 @@ interface ResolvedTarget {
 }
 
 /**
+ * A relay error frame as an Error. `code` is the relay's error code, which the
+ * overlay maps to its copy (src/lib/sttErrorMapper.ts); the relay's human text
+ * ("Renew at ...") follows it. `terminal` tells main the provider has stopped
+ * reconnecting: trial_expired, subscription_inactive, account_suspended and
+ * auth_required used to reach main as bare codes it did not recognise, so the
+ * overlay sat on "reconnecting" for the rest of the meeting.
+ */
+export function nativelyProServerError(msg: any, terminal: boolean): Error {
+    const code = String(msg?.error ?? 'error');
+    const detail = typeof msg?.message === 'string' && msg.message.trim() ? `: ${msg.message.trim()}` : '';
+    return Object.assign(new Error(`${code}${detail}`), { code, terminal });
+}
+
+/**
  * NativelyProSTT
  *
  * Connects to the Natively API WebSocket transcription endpoint.
@@ -635,7 +649,7 @@ export class NativelyProSTT extends EventEmitter {
             this.lastServerActivityAt = Date.now();
             try {
                 const msg = JSON.parse(data.toString());
-                if (!msg.text || msg.is_final) {
+                if ((!msg.text && msg.utterance_end !== true) || msg.is_final) {
                     console.log(`[NativelyProSTT:${this.channel}] Server msg`, {
                         type: msg.type,
                         final: Boolean(msg.is_final),
@@ -646,7 +660,11 @@ export class NativelyProSTT extends EventEmitter {
 
                 if (msg.error) {
                     console.error('[NativelyProSTT] Server error:', msg.error, msg.message || '');
-                    this.emit('error', new Error(msg.error));
+                    // A relay token rejection is not a verdict on the user's key
+                    // (carve-out below), so it is never terminal.
+                    const relayTokenRejected = msg.error === 'invalid_key_format' && this.isOnRelayTarget(connectUrl);
+                    const fatal = NativelyProSTT.FATAL_SERVER_ERRORS.has(String(msg.error)) && !relayTokenRejected;
+                    this.emit('error', nativelyProServerError(msg, fatal));
 
                     // RELAY token-fatal carve-out (Phase 7/8): on a RELAY url an
                     // `invalid_key_format` means a bad/expired SESSION TOKEN, not
@@ -656,7 +674,7 @@ export class NativelyProSTT extends EventEmitter {
                     // the next rung (alternate relay → Railway), where legacy auth
                     // re-validates the real key. We let the socket close naturally
                     // and the close handler walk the ladder.
-                    if (msg.error === 'invalid_key_format' && this.isOnRelayTarget(connectUrl)) {
+                    if (relayTokenRejected) {
                         console.warn(`[NativelyProSTT:${this.channel}] Relay token rejected (invalid_key_format on relay) — advancing to next fallback rung.`);
                         clearCachedSession(this.channel);
                         this.forceAdvanceTarget(connectUrl, 'token_fatal');
@@ -669,7 +687,7 @@ export class NativelyProSTT extends EventEmitter {
                     // trial_expired must be here: without it the client retries every 1.5-30s
                     // forever, hammering auth DB calls while the server rejects every attempt.
                     // (On the Railway url, invalid_key_format remains fatal exactly as today.)
-                if (NativelyProSTT.FATAL_SERVER_ERRORS.has(String(msg.error))) {
+                if (fatal) {
                     console.warn(`[NativelyProSTT:${this.channel}] ${msg.error} is a verdict on the credential — not reconnecting`);
                     this.isActive = false;
                 }
@@ -722,7 +740,7 @@ export class NativelyProSTT extends EventEmitter {
                     console.log(`[NativelyProSTT] Auto-detected language: ${detected}`);
                     this.emit('languageDetected', detected);
                     if (!this.shouldReconnectForDetectedLanguage()) {
-                        console.log(`[NativelyProSTT:${this.channel}] ${this.connectedProvider} follows the detected language in auto mode — keeping the stream`);
+                        console.log(`[NativelyProSTT:${this.channel}] auto mode follows the speaker — ${detected} shown, not pinned (${this.connectedProvider})`);
                         return;
                     }
                     this.languageBcp47      = detected;
@@ -737,6 +755,28 @@ export class NativelyProSTT extends EventEmitter {
                             if (this.isActive) this.connect();
                         }, 250);
                     }
+                    return;
+                }
+
+                // natively-api 2026-10-29: in auto mode the relay reports each change of
+                // the language it hears as `language_heard` and keeps every provider
+                // multilingual, so a speaker who switches language is followed. Display
+                // only: reconnecting would pin it, which is what `language_detected` did
+                // to every auto session (the relay no longer sends that in auto mode).
+                if (typeof msg.language_heard === 'string' && msg.language_heard) {
+                    this.emit('languageDetected', msg.language_heard);
+                    return;
+                }
+
+                // End of an utterance (natively-api, 2026-10-29): one frame after
+                // each utterance's final text, from Deepgram's UtteranceEnd and
+                // speech_final, Soniox's <end> and ElevenLabs' commits. The same
+                // event the direct providers emit, so Auto Answer closes a
+                // question at the speaker's real stop instead of waiting out the
+                // quiet window, which merged back-to-back questions. A server
+                // that predates the frame never sends it.
+                if (msg.utterance_end === true) {
+                    try { this.emit('endpoint', { type: 'utterance_end' }); } catch { /* listeners never break the socket */ }
                     return;
                 }
 
@@ -1170,13 +1210,22 @@ export class NativelyProSTT extends EventEmitter {
     }
 
     /**
-     * A `language_detected` frame pins the language by reconnecting. Soniox already
-     * transcribes every language per token in auto mode and reports switches as
-     * they happen; reconnecting it only loses ~1.5 s of stream and freezes an
-     * early guess. Deepgram/Google need the pin, so they keep the reconnect.
+     * Never: a `language_detected` frame is shown, not obeyed. Reconnecting with
+     * the detected code pinned froze Auto on the first verdict for the rest of
+     * the meeting, on every provider — Deepgram `multi`, Soniox per token,
+     * ElevenLabs, Google — all follow a speaker who switches only while left
+     * unpinned (Deepgram: "a specific language… will only attempt to transcribe
+     * speech in that specified language", developers.deepgram.com/docs/language).
+     * natively-api's server.js stopped sending it in auto mode (2026-10-29), but
+     * the regional relay (services/stt-relay session.js onLanguageDetected) still
+     * sends it once per session; a user log 2026-11-01 showed a Windows mic
+     * session that stayed Russian after "hello" was heard as "Алло".
+     *
+     * A pinned language never gets here as a change: the relay echoes the pin.
+     * Kept for that case (configured key not 'auto'), which reconnects as before.
      */
     private shouldReconnectForDetectedLanguage(): boolean {
-        return this.connectedProvider !== 'soniox';
+        return this.configuredLanguageKey !== 'auto';
     }
 
     private startLivenessWatch(ws: WebSocket): void {

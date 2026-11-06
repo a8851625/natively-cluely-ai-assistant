@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, useId, useMemo } from 'react';
 import { useT } from '../i18n';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
-import { ArrowLeft, Search, Mail, Link, ChevronDown, Play, ArrowUp, Copy, Check, MoreHorizontal, Settings, ArrowRight, RefreshCw, Info, Eye, EyeOff, History, Pencil, X, ChevronRight, ChevronLeft, FileText, Columns2 } from 'lucide-react';
+import { ArrowLeft, Search, Mail, Link, ChevronDown, Play, ArrowUp, Copy, Check, MoreHorizontal, Settings, ArrowRight, RefreshCw, Info, Eye, EyeOff, History, Pencil, X, ChevronRight, ChevronLeft, FileText, Columns2, NotebookPen } from 'lucide-react';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { genMessageId } from '../utils/messageId';
@@ -38,6 +38,7 @@ import { useGenieAnimationEnabled } from '../lib/genieAnimationSetting';
 import { ShareMenu } from './meeting/ShareMenu';
 import { followUpChanges, settleFollowUpSave, type FollowUpText } from './meeting/outputsView';
 import { NotesVersionTabs } from './meeting/NotesVersionTabs';
+import { fallbackNoteSections } from './notes/notepadView';
 import { NoteSource } from './meeting/NoteSource';
 import { NotesRating } from './meeting/NotesRating';
 import { NotesTemplatePicker } from './meeting/NotesTemplatePicker';
@@ -46,6 +47,9 @@ import { readableNotesMarkdown } from './notes/notesEditorModel';
 import { comparePair, shouldPromptRating, templatePickerOptions } from './meeting/notesFeedback';
 import { noteLineTime, notesContentKey, notesLabel, notesWereEdited, versionTabs, type VersionKey } from './meeting/notesView';
 import { copyText } from '../lib/copyText';
+import { resumeSpot } from '../../electron/services/meeting/meetingResume';
+import { resumeSavedMeeting } from '../lib/startMeetingRequest';
+import { joinSpeakers, mergeOffers, renameSpeaker, speakerChips, type SpeakerChip } from '../lib/speakerMerge';
 
 registerPrismLanguages();
 
@@ -107,24 +111,22 @@ const ASK_BAR_SATURATION_DARK = 1.4;
 const ASK_BAR_SATURATION_LIGHT = 1.2;
 
 /*
- * The send orb — a plain circle, deliberately.
+ * The send orb — the website's send button (heynatively.com/chat): a round
+ * button in the lavender Liquid Glass, deep lavender arrow. Owner request,
+ * 2026-10-30: "this should be liquid glass like in the website". It was a
+ * solid grey/white disc, on the reasoning that a second glass surface inside
+ * the pill's would compete with it; the site draws exactly that and it reads.
  *
- * It sits ON the pill, and the pill is already the glass: it refracts, it
- * tints, it carries a rim. A second refracting surface nested inside that one
- * competes with it — two lenses 8px apart, each bending the other's output —
- * and at 30px the result reads as an artefact rather than as a material. So
- * the orb contributes no glass of its own and lets the body's show through
- * around it.
+ * The material is .lg-lavender (ui-components), re-tinted for dark by
+ * .lg-lav-tinted (index.css) as the follow-up email's send pill is; the
+ * round box, rim stops and glyph are .mn-ask-send (index.css). Grey and
+ * disabled while the box is empty; lavender once something is typed.
  *
- * Which leaves it doing the one job a send affordance has: being findable. A
- * solid disc against the pill's translucency is the strongest possible signal
- * for that, and it inverts by theme so the contrast survives both.
+ * 36px in the 48px bar with an even 6px inset, the site's proportion (its
+ * button fills about three quarters of the bar's height); 30px read as a dot.
  */
-const ASK_ORB_SIZE = 30;
-/** The disc: white on the dark pill, grey on the light one. */
-const ASK_ORB_FILL = { dark: '#FFFFFF', light: '#8E8E93' };
-/** The arrow, chosen against its own disc rather than against the theme. */
-const ASK_ORB_GLYPH = { dark: '#111113', light: '#FFFFFF' };
+const ASK_ORB_SIZE = 36;
+const ASK_ORB_INSET = (ASK_BAR_HEIGHT - ASK_ORB_SIZE) / 2;
 
 const formatTime = (ms: number) => {
     const date = new Date(ms);
@@ -1001,6 +1003,11 @@ const participantsSummary = (names: string[]): string => {
     return `${names.slice(0, 2).join(', ')} and ${names.length - 2} others`;
 };
 
+// A template section that is itself the Summary ("Summary", "TL;DR"; not "Study
+// summary"). The General mode seeded on new installs has one, so drawing the tldr
+// as its own Summary above it showed two (2026-10-31). Same test as notepadView.
+const isSummarySectionTitle = (title?: string | null): boolean => /^\s*(?:summary|tl;?\s*dr)\s*:?\s*$/i.test(title || '');
+
 const isNextStepsSectionTitle = (title?: string | null): boolean => {
     const t = (title || '').trim();
     if (!t) return false;
@@ -1041,6 +1048,8 @@ interface Meeting {
         speakerConfidence?: Record<string, number>;
         /** Names proposed after the meeting for a voice left unnamed; the rename field starts from one. */
         speakerSuggestions?: Array<{ id: string; name: string; certainty?: string; applied?: boolean }>;
+        /** After a Resume: voices that came back under a new number, and who from the first part they may be (lib/speakerMerge.ts). */
+        speakerMerges?: Array<{ id: string; candidates: string[] }>;
         crossMeeting?: { stillOpen?: string[] };
         recipes?: Record<string, string>;
         /** Set when the user edited these notes by hand (Regenerate asks first). */
@@ -1088,6 +1097,8 @@ interface Meeting {
     summaryStatus?: MeetingSummaryStatus;
     /** What the user typed in the notes window during the meeting, exactly as typed. */
     userNotes?: string;
+    /** What it was taken on (2026-11-02): decides where Resume lives (meetingResume.ts). None on older meetings. */
+    surface?: 'overlay' | 'notepad';
 }
 
 // Mirrors SummaryStatus in electron/services/meeting/MeetingSummaryV3.ts. The
@@ -1941,7 +1952,8 @@ const MeetingDetails: React.FC<MeetingDetailsProps> = ({ meeting: initialMeeting
         let timer: ReturnType<typeof setTimeout> | undefined;
         const onKeyDown = (e: KeyboardEvent) => {
             if (e.key !== 'Escape' || e.defaultPrevented || isChatOpen) return;
-            const el = e.target as HTMLElement | null;
+            // A synthetic Escape dispatched on window has no element target.
+            const el = e.target instanceof Element ? e.target : null;
             if (el?.closest('input, textarea, select, [contenteditable="true"]')) return;
             if (document.querySelector('[role="dialog"], [aria-modal="true"]')) return;
             timer = setTimeout(() => { if (!e.defaultPrevented) onBack(); }, 0);
@@ -1973,6 +1985,13 @@ const MeetingDetails: React.FC<MeetingDetailsProps> = ({ meeting: initialMeeting
     const v3Questions = meeting.detailedSummary?.openQuestions || [];
     const v3Risks = meeting.detailedSummary?.risks || [];
     const v3Tldr = meeting.detailedSummary?.tldr || [];
+    const templateHasSummary = (meeting.detailedSummary?.sectionsV3 || []).some((s) => s.bullets?.length > 0 && isSummarySectionTitle(s.title));
+    // The notes' sections: the template's, or with no template (no mode active, none picked in
+    // the notepad) Decisions and Action items from the call's own lists (fallbackNoteSections).
+    const templateSections = meeting.detailedSummary?.sectionsV3 || [];
+    const noteSections: typeof templateSections = templateSections.length > 0
+        ? templateSections
+        : fallbackNoteSections(meeting.detailedSummary as any) as unknown as typeof templateSections;
     const v3WhatChanged = meeting.detailedSummary?.whatChanged || [];
     const v3Mode = meeting.detailedSummary?.mode;
     const v3SummaryStatus = meeting.summaryStatus;
@@ -2350,6 +2369,76 @@ const MeetingDetails: React.FC<MeetingDetailsProps> = ({ meeting: initialMeeting
         } catch { /* swallow */ }
     };
 
+    // Back to the notepad, and Resume (2026-11-02, services/meeting/meetingResume.ts).
+    // Both wait while another meeting runs: it owns the notepad and the microphone.
+    const [meetingRunning, setMeetingRunning] = useState(false);
+    useEffect(() => {
+        const api = window.electronAPI;
+        let cancelled = false;
+        api?.getMeetingActive?.().then((active) => { if (!cancelled) setMeetingRunning(!!active); }).catch(() => { /* assume none */ });
+        const off = api?.onMeetingStateChanged?.((d) => setMeetingRunning(!!d?.isActive));
+        return () => { cancelled = true; off?.(); };
+    }, []);
+    // A resumed meeting is saved again under this id at its Stop: pick up the new
+    // notes being written (the generation poll above takes it from there) and the
+    // earlier notes kept as a version.
+    useEffect(() => {
+        if (isSummaryGenerating) return;
+        const off = window.electronAPI?.onMeetingsUpdated?.(async () => {
+            try {
+                const fresh = await window.electronAPI?.getMeetingDetails?.(meeting.id) as Meeting | undefined;
+                if (fresh && SUMMARY_IN_PROGRESS.has(fresh.summaryStatus ?? '')) {
+                    setMeeting(fresh);
+                    void loadNotesVersions();
+                }
+            } catch { /* the page keeps what it shows */ }
+        });
+        return () => { off?.(); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isSummaryGenerating, meeting.id]);
+    const [resumeBusy, setResumeBusy] = useState(false);
+    const [resumeNotice, setResumeNotice] = useState<string | null>(null);
+    useEffect(() => {
+        if (!resumeNotice) return;
+        const timer = setTimeout(() => setResumeNotice(null), 4_000);
+        return () => clearTimeout(timer);
+    }, [resumeNotice]);
+    const resumeProblem = (code?: string): string => (
+        code === 'meeting-running' ? t('Stop the meeting that is running first.')
+            : code === 'not-found' ? t('This meeting could not be found.')
+                    : code === 'mic-permission-denied' ? t('Natively needs microphone access to record.')
+                        : t('Could not resume this meeting.')
+    );
+    // Overlay meetings resume here; a notepad meeting resumes in the notepad (and
+    // older meetings, which never stored it, count as overlay meetings).
+    const resumeOnPage = resumeSpot(baseMeeting.surface) === 'page';
+    // Notes still being written do not hold Resume back: the resumed Stop writes
+    // them over the whole meeting (meetingResume.resumeBlockReason).
+    const resumeDisabled = meetingRunning || resumeBusy;
+    const resumeHint = meetingRunning ? t('Stop the meeting that is running first')
+        : t('Keep recording into this meeting');
+    const resumeMeeting = async () => {
+        if (resumeDisabled) return;
+        setResumeBusy(true);
+        try {
+            const result = await resumeSavedMeeting(meeting.id);
+            if (!result.success) setResumeNotice(resumeProblem(result.code));
+        } catch {
+            setResumeNotice(resumeProblem());
+        } finally {
+            setResumeBusy(false);
+        }
+    };
+    const openInNotepad = async () => {
+        if (meetingRunning) return;
+        try {
+            const result = await window.electronAPI?.notesWindowOpenSavedMeeting?.(meeting.id);
+            if (result && !result.success) setResumeNotice(result.code === 'meeting-running' ? t('Stop the meeting that is running first.') : t('Could not open the notepad.'));
+        } catch {
+            setResumeNotice(t('Could not open the notepad.'));
+        }
+    };
+
     // Set when regenerating AS the auto-detected mode was refused because that mode
     // needs Pro (the same gate as switching to it) — the suggestion then says so
     // instead of spinning and silently doing nothing.
@@ -2405,7 +2494,15 @@ const MeetingDetails: React.FC<MeetingDetailsProps> = ({ meeting: initialMeeting
         setCompareBusy(true);
         try {
             const res = await window.electronAPI.compareMeetingNotesPick({ id: compare.id, choice, ...(reason.trim() ? { reason: reason.trim() } : {}) });
-            if (res) setCompareReveal(res);
+            if (res) {
+                setCompareReveal(res);
+                // The losing version is gone (an earlier winner became the notes):
+                // show the current notes and the tabs that are left.
+                if (res.removed != null) {
+                    setVersionKey('current');
+                    await Promise.all([reloadMeeting(), loadNotesVersions()]);
+                }
+            }
         } catch { /* the pick stays open */ } finally { setCompareBusy(false); }
     };
 
@@ -2625,10 +2722,11 @@ const MeetingDetails: React.FC<MeetingDetailsProps> = ({ meeting: initialMeeting
         void handleRegenerateFollowUp(followUpTone);
     };
 
-    const handleSaveSpeakerLabel = async (speakerId: string, name: string) => {
-        const existing = meeting.detailedSummary?.speakerLabels || {};
-        const next = { ...existing, [speakerId]: name.trim() };
-        if (!name.trim()) delete next[speakerId];
+    // A rename covers every id the person was saved under (one chip, lib/speakerMerge.ts).
+    const handleSaveSpeakerLabel = async (chip: SpeakerChip, name: string) => {
+        await saveSpeakerLabels(renameSpeaker(meeting.detailedSummary?.speakerLabels, chip, name));
+    };
+    const saveSpeakerLabels = async (next: Record<string, string>) => {
         setMeeting(prev => ({ ...prev, detailedSummary: { ...(prev.detailedSummary as any), speakerLabels: next } }));
         setEditingSpeaker(null);
         try {
@@ -2954,7 +3052,15 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                     Kept inside <main> (rather than hoisted above it) so it shares the scroll box's
                     content width: a two-container split would offset this column from the one below
                     by the scrollbar width on platforms with classic (non-overlay) scrollbars. */}
-                <div className={`sticky top-0 z-20 ${isLight ? 'bg-bg-secondary' : 'bg-bg-elevated'}`}>
+                {/* The header's paint fades out over its last 24px (inside the empty pb-8 strip
+                    below the tabs), so notes scrolling under it dissolve instead of being cut at
+                    a hard edge. A background gradient rather than a mask: a mask would also clip
+                    the Share / calendar popovers that open out of this box. At rest the strip has
+                    no content behind it, so the page looks unchanged until you scroll. */}
+                <div
+                    className="sticky top-0 z-20"
+                    style={{ backgroundImage: `linear-gradient(to bottom, var(${isLight ? '--bg-secondary' : '--bg-elevated'}) calc(100% - 24px), transparent)` }}
+                >
                     {/* No entrance of its own (nor on the body below): Launcher's page
                         transition brings the whole page in, and a second fade + 10px lift
                         under it multiplied the two opacities, so the page arrived dimmer
@@ -3018,8 +3124,20 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                         {/* Follow-up email — a meeting-level action, so it sits by the title
                             rather than at the foot of the notes. It opens the draft in a dialog
                             (FollowUpDialog below) and writes one first if there is none yet. */}
-                        {meeting.detailedSummary && (
-                            <div className="shrink-0">
+                        <div className="shrink-0 flex items-center gap-2">
+                            {/* Back to the notepad (2026-11-02): the notepad opens on this
+                                meeting. Icon only, so the header stays one quiet action wide. */}
+                            <LiquidGlassButton
+                                variant="clear"
+                                className="lg-sm mn-generate mn-icon-btn"
+                                onClick={() => { void openInNotepad(); }}
+                                disabled={meetingRunning}
+                                aria-label={t('Open in notepad')}
+                                title={meetingRunning ? t('Stop the meeting that is running first') : t('Open in notepad')}
+                            >
+                                <NotebookPen className="w-3.5 h-3.5" strokeWidth={2.2} aria-hidden />
+                            </LiquidGlassButton>
+                            {meeting.detailedSummary && (
                                 <LiquidGlassButton
                                     variant="clear"
                                     className="lg-sm mn-generate"
@@ -3030,8 +3148,8 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                                 >
                                     {t('Follow-up email')}
                                 </LiquidGlassButton>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
 
                     {/* Tabs */}
@@ -3362,7 +3480,7 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                                 ); })()}
 
                                 {/* Summary on top — outcome-first, grounded. Then the mode's template sections below. */}
-                                {isV3Summary && v3Tldr.length > 0 && (() => { const h = revealBlock(); return (
+                                {isV3Summary && v3Tldr.length > 0 && !templateHasSummary && (() => { const h = revealBlock(); return (
                                     <section className="mb-8">
                                         <h2 className={`text-lg font-semibold text-text-primary mb-4${h.cls}`} style={h.style} data-rw={h['data-rw']}>{t('Summary')}</h2>
                                         <ul className="space-y-3">
@@ -3386,10 +3504,10 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
 
                                 {/* The mode's note-section TEMPLATE — the primary notes layout (e.g. Questions and
                                     responses, Discovery, Action items). Rendered right under Summary, in template order.
-                                    Empty sections are dropped server-side. */}
-                                {isV3Summary && meeting.detailedSummary?.sectionsV3 && meeting.detailedSummary.sectionsV3.length > 0 && (
+                                    Empty sections are dropped server-side. With no template, Decisions and Action items. */}
+                                {isV3Summary && noteSections.length > 0 && (
                                     <>
-                                        {meeting.detailedSummary.sectionsV3
+                                        {noteSections
                                             .filter(section => SHOW_NEXT_STEPS || !isNextStepsSectionTitle(section.title))
                                             .map((section) => {
                                             const h = revealBlock();
@@ -3757,6 +3875,18 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                                         .filter(e => !['system', 'ai', 'assistant', 'model'].includes((e.speaker || '').toLowerCase()))
                                         .map(e => e.speaker)));
                                     if (speakers.length === 0) return null;
+                                    const speakerIdOf = (sp: string) => (sp || '').toLowerCase().replace(/^(user|me)$/, 'me').replace(/^(interviewer|them|other|system|assistant)$/, 'speaker_1').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
+                                    const rawOf = new Map<string, string>();
+                                    for (const sp of speakers) { const sid = speakerIdOf(sp); if (!rawOf.has(sid)) rawOf.set(sid, sp); }
+                                    const labelsNow = meeting.detailedSummary?.speakerLabels;
+                                    // Ids saved under the same name are one person (a voice joined after a Resume).
+                                    const chips = speakerChips([...rawOf.keys()], labelsNow);
+                                    const chipOf = (sid: string): SpeakerChip => chips.find(c => c.ids.includes(sid)) ?? { id: sid, ids: [sid] };
+                                    const nameOf = (sid: string) => resolveSpeakerName(rawOf.get(sid) ?? sid);
+                                    const join = (chip: SpeakerChip, target: string) => {
+                                        setEditingSpeaker(null);
+                                        void saveSpeakerLabels(joinSpeakers(labelsNow, chip, chipOf(target), nameOf(target)));
+                                    };
                                     // Leaving the field (Save, Cancel, Enter, Esc) hands its on-screen
                                     // width to the chip that replaces it, so the pill eases back down
                                     // rather than snapping. offsetWidth, not a rect: layout width,
@@ -3764,7 +3894,7 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                                     const endSpeakerEdit = (id: string, save: boolean, from: Element) => {
                                         const field = from.closest<HTMLElement>('[data-speaker-editor]');
                                         if (field) setChipMorph({ id, from: field.offsetWidth });
-                                        if (save) handleSaveSpeakerLabel(id, speakerDraft);
+                                        if (save) handleSaveSpeakerLabel(chipOf(id), speakerDraft);
                                         else setEditingSpeaker(null);
                                     };
                                     return (
@@ -3775,9 +3905,11 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                                                 -out, index.css) and eases to its own, and the chips after it are
                                                 pushed along by that width in normal flow. It used to swap in a
                                                 single frame to a pill about four times the chip's width. */}
-                                            {speakers.map((sp) => {
-                                                const display = resolveSpeakerName(sp);
-                                                const id = (sp || '').toLowerCase().replace(/^(user|me)$/, 'me').replace(/^(interviewer|them|other|system|assistant)$/, 'speaker_1').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'unknown';
+                                            {chips.map((chip) => {
+                                                const id = chip.id;
+                                                const display = nameOf(id);
+                                                // After a Resume: who from the first part this voice may be.
+                                                const offers = mergeOffers(chip, meeting.detailedSummary?.speakerMerges, labelsNow);
                                                 const morphFrom = chipMorph?.id === id ? chipMorph.from : null;
                                                 const morphStyle = morphFrom != null ? { '--mn-chip-from-w': `${morphFrom}px` } as React.CSSProperties : undefined;
                                                 if (editingSpeaker === id) {
@@ -3824,12 +3956,28 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                                                                     <X className="w-3 h-3" strokeWidth={2.5} />
                                                                 </motion.button>
                                                             </span>
+                                                            {offers.length > 0 && (
+                                                                <span className="inline-flex items-center gap-1 pl-1 border-l border-border-subtle">
+                                                                    {offers.map(c => (
+                                                                        <button
+                                                                            key={c}
+                                                                            type="button"
+                                                                            onMouseDown={e => e.preventDefault()}
+                                                                            onClick={() => join(chip, c)}
+                                                                            className="inline-flex items-center h-5 px-2 rounded-full text-[11px] text-text-secondary hover:text-text-primary hover:bg-white/[0.08] transition-colors"
+                                                                            title={`${t('Same person as')} ${nameOf(c)}`}
+                                                                        >
+                                                                            {nameOf(c)}
+                                                                        </button>
+                                                                    ))}
+                                                                </span>
+                                                            )}
                                                         </span>
                                                     );
                                                 }
                                                 return (
+                                                    <React.Fragment key={id}>
                                                     <motion.button
-                                                        key={id}
                                                         type="button"
                                                         onClick={e => {
                                                             setChipMorph({ id, from: e.currentTarget.offsetWidth });
@@ -3851,6 +3999,25 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                                                             <Pencil className="w-2.5 h-2.5 text-text-tertiary" strokeWidth={2} />
                                                         </span>
                                                     </motion.button>
+                                                    {offers.length > 0 && (
+                                                        // One person from the first part: one click joins them. Several: the
+                                                        // rename field opens with each of them to pick from.
+                                                        <button
+                                                            type="button"
+                                                            onClick={e => {
+                                                                if (offers.length === 1) { join(chip, offers[0]); return; }
+                                                                const chipEl = e.currentTarget.previousElementSibling as HTMLElement | null;
+                                                                if (chipEl) setChipMorph({ id, from: chipEl.offsetWidth });
+                                                                setEditingSpeaker(id);
+                                                                setSpeakerDraft(display);
+                                                            }}
+                                                            className="-ml-1 inline-flex items-center h-7 px-2 rounded-full text-[11px] text-text-tertiary hover:text-text-primary hover:bg-white/[0.06] transition-colors"
+                                                            title={t('The same person as someone before the Resume')}
+                                                        >
+                                                            {offers.length === 1 ? `${t('Same as')} ${nameOf(offers[0])}?` : t('Same as…?')}
+                                                        </button>
+                                                    )}
+                                                    </React.Fragment>
                                                 );
                                             })}
                                         </div>
@@ -3954,7 +4121,48 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                 `fixed inset-0 z-[300]` in a8c1ac82 (the sheet-style dimming); at the old
                 z-50 the bar vanished under it the moment a chat opened. z-[310] clears it.
                 Same stacking context: neither is portaled. */}
-            <div className={`absolute bottom-0 left-0 right-0 p-6 flex justify-center pointer-events-none ${isChatOpen ? 'z-[310]' : 'z-20'}`}>
+            <div className={`absolute bottom-0 left-0 right-0 p-6 flex justify-center items-center gap-2.5 pointer-events-none ${isChatOpen ? 'z-[310]' : 'z-20'}`}>
+                {resumeNotice && (
+                    <p role="status" className="absolute left-0 right-0 bottom-[84px] text-center text-[12px] leading-4 text-text-secondary pointer-events-none">{resumeNotice}</p>
+                )}
+                {/* Resume (2026-11-02), Granola's: recording again into this meeting.
+                    Overlay meetings only; a notepad meeting resumes in the notepad.
+                    The same glass as the Ask bar, three still bars like the
+                    notepad's listening pill. Steps aside while the chat is open:
+                    the bar is the chat's input then. */}
+                {resumeOnPage && !isChatOpen && (
+                    <GlassSurface
+                        width="auto"
+                        height={ASK_BAR_HEIGHT}
+                        borderRadius={ASK_BAR_HEIGHT / 2}
+                        borderWidth={ASK_BAR_EDGE}
+                        blur={ASK_BAR_MAP_BLUR}
+                        brightness={60}
+                        opacity={0.9}
+                        distortionScale={isLight ? ASK_BAR_DISTORTION_LIGHT : ASK_BAR_DISTORTION_DARK}
+                        redOffset={0}
+                        greenOffset={0}
+                        blueOffset={0}
+                        yChannel="B"
+                        displace={0.5}
+                        tint={isLight ? ASK_BAR_TINT_LIGHT : ASK_BAR_TINT_DARK}
+                        saturation={isLight ? ASK_BAR_SATURATION_LIGHT : ASK_BAR_SATURATION_DARK}
+                        className="shrink-0 pointer-events-auto"
+                        contentClassName="glass-surface__content--bare"
+                    >
+                        <button
+                            type="button"
+                            onClick={() => { void resumeMeeting(); }}
+                            disabled={resumeDisabled}
+                            aria-busy={resumeBusy || undefined}
+                            title={resumeHint}
+                            className="mn-resume h-full pl-4 pr-[18px] flex items-center gap-[9px] rounded-full text-sm font-medium text-text-primary disabled:opacity-50 disabled:cursor-default"
+                        >
+                            <span className="mn-resume-bars" aria-hidden><span /><span /><span /></span>
+                            {t('Resume')}
+                        </button>
+                    </GlassSurface>
+                )}
                 {/* Refractive glass, not a blurred pane. The pill floats over the
                     scrolling notes, so the material is only readable as glass if
                     what passes behind it BENDS — a plain backdrop-blur reads as
@@ -4000,24 +4208,24 @@ ${meeting.detailedSummary.keyPoints?.map(item => `- ${item}`).join('\n') || 'Non
                         onChange={(e) => setQuery(e.target.value)}
                         onKeyDown={handleInputKeyDown}
                         placeholder={t("Ask about this meeting...")}
-                        className="w-full h-full pl-5 pr-12 bg-transparent border-0 text-sm text-text-primary placeholder-text-tertiary/70 focus:outline-none"
+                        className="w-full h-full pl-5 pr-14 bg-transparent border-0 text-sm text-text-primary placeholder-text-tertiary/70 focus:outline-none"
                     />
-                    {/* Positioned at 9px rather than with a translate, so the
-                        transform channel stays free for the press. */}
-                    <button
-                        type="button"
-                        onClick={handleSubmitQuestion}
-                        aria-label={t('Ask about this meeting...')}
-                        className="absolute right-2 top-[9px] inline-flex items-center justify-center rounded-full border-0 p-0 appearance-none cursor-pointer transition-transform duration-150 ease-out active:scale-[0.94]"
-                        style={{
-                            width: ASK_ORB_SIZE,
-                            height: ASK_ORB_SIZE,
-                            background: ASK_ORB_FILL[isLight ? 'light' : 'dark'],
-                            color: ASK_ORB_GLYPH[isLight ? 'light' : 'dark'],
-                        }}
-                    >
-                        <ArrowUp size={14} className="rotate-45" />
-                    </button>
+                    {/* Positioned by its inset rather than with a translate, so
+                        the transform channel stays free for the press. */}
+                    {/* The span holds the position (.lg-button sets its own
+                        position: relative for the rim and lens layers). */}
+                    <span className="absolute flex" style={{ top: ASK_ORB_INSET, right: ASK_ORB_INSET }}>
+                        <LiquidGlassButton
+                            variant="lavender"
+                            onClick={handleSubmitQuestion}
+                            disabled={!query.trim()}
+                            aria-label={t('Ask about this meeting...')}
+                            className="lg-sm lg-lav-tinted mn-ask-send"
+                            style={{ '--lg-pill-h': `${ASK_ORB_SIZE}px` } as React.CSSProperties}
+                        >
+                            <ArrowUp size={18} strokeWidth={2.5} className="rotate-45" />
+                        </LiquidGlassButton>
+                    </span>
                 </GlassSurface>
             </div>
 

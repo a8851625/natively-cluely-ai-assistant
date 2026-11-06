@@ -1,20 +1,25 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
-import { ArrowDown, Check, ChevronDown, ChevronUp, Copy, FileText, ImagePlus, LayoutGrid, Minus, MoreHorizontal, Paperclip, Pause, Play, RotateCcw, Scissors, Search, SquarePen, X } from 'lucide-react';
+import { AnimatePresence, MotionConfig, motion } from 'framer-motion';
+import { ArrowDown, Check, ChevronDown, ChevronUp, Copy, FileText, ImagePlus, LayoutGrid, Minus, MoreHorizontal, Paperclip, Pause, Play, RotateCcw, Scissors, Search, X } from 'lucide-react';
 import { useResolvedTheme } from '../hooks/useResolvedTheme';
 import { applyTypedKeyAtEnd, plainAnswerText } from './meeting/notesView';
+import { NotepadAnswer } from './notes/NotepadAnswer';
 import { useLastTimeRecap } from './assist/useLastTimeRecap';
 import { shouldBlockFocus, shouldFireStealthTapStart } from '../lib/overlayStealthFocusGuards.mjs';
 import { editCommand, editShortcutLetter, paste } from '../lib/stealthEdit.mjs';
 import { NotesEditor, type NotesEditorHandle } from './notes/NotesEditor';
-import { NotesHeading, type FolderChoice, type HeadingInfo } from './notes/NotesHeading';
+import { NotesHeading, type HeadingInfo } from './notes/NotesHeading';
 import { NotesEnhanced, type NotesEnhancedHandle } from './notes/NotesEnhanced';
 import { NoteTemplateGallery } from './notes/NoteTemplateGallery';
 import { noteTemplateById } from '../../electron/services/meeting/noteTemplates';
-import { answerSources, askContext, findInTranscript, listeningBarHeights, visibleRecipes, type AskTurn, type TranscriptHit, type TranscriptLine } from './notes/notepadView';
+import { answerSources, applyTranscriptEvent, askContext, EMPTY_LIVE_TRANSCRIPT, findInTranscript, listeningBarHeights, liveTranscriptRows, savedMeetingHeading, type AskTurn, type LiveTranscript, type TranscriptHit, type TranscriptLine } from './notes/notepadView';
+import { resumeSpot } from '../../electron/services/meeting/meetingResume';
+import { resumeSavedMeeting } from '../lib/startMeetingRequest';
 import { TranscriptControls } from './notes/TranscriptControls';
 import { NpPop } from './notes/NpPop';
 import { useT } from '../i18n';
+import { NOTE_RECIPES, noteRecipeById, parseSlashCommand, recipesFor, searchRecipes, type NoteRecipe } from '../../electron/llm/noteRecipes';
+import { NOTEPAD_DEMO_STILL_MS, notepadDemoFrame, sameDemoContent, type NotepadDemoFrame } from './notes/notepadDemo';
 
 /**
  * The notes window (`?window=notes`, 2026-10-15), laid out and working like
@@ -22,7 +27,7 @@ import { useT } from '../i18n';
  *
  *  - Heading (notes/NotesHeading.tsx): the title in the serif, renamed by a
  *    click; a chip with the day and people that opens the event (Join, people
- *    by company, add or remove someone, link a different event); Add to folder.
+ *    by company, add or remove someone, link a different event).
  *  - The page (notes/NotesEditor.tsx): headings, lists, checkboxes, bold and
  *    the rest, a "/" menu, Find. Markdown underneath.
  *  - While the meeting runs, Granola's floating bottom bar: one pill with bars
@@ -57,17 +62,27 @@ import { useT } from '../i18n';
  *
  * `preview` (2026-10-20): Settings › Overlay's notepad tab draws this same page
  * with sample notes. It talks to nothing (every effect returns at once), its
- * top strip is no drag handle, and it takes no clicks.
+ * top strip is no drag handle, and it takes no clicks. With `demo` (2026-11-01)
+ * it plays notes/notepadDemo.ts on a loop: the transcript streaming in, notes
+ * typed, the bars moving, "/" listing the recipes, then Ask answering. Reduced
+ * motion shows one still frame.
  */
 
 type Phase = 'idle' | 'live' | 'ended';
-type Field = 'notes' | 'ask' | 'title' | 'find' | 'search' | 'attendee' | 'folder' | 'template';
-type Turn = AskTurn & { kind: 'chat' | 'helper' };
+type Field = 'notes' | 'ask' | 'title' | 'find' | 'search' | 'attendee' | 'template';
+/** `recipeId`/`extra`: the recipe a turn ran and what was typed after it, for Retry. */
+type Turn = AskTurn & { kind: 'chat' | 'helper'; recipeId?: string; extra?: string; errorText?: string };
 type HelperAction = 'catch_me_up' | 'define' | 'sound_smart' | 'follow_up_questions';
 export interface NotesWindowPreview {
     title: string;
     people: number;
     text: string;
+    /** Play the live demo (notes/notepadDemo.ts) instead of still notes. */
+    demo?: boolean;
+    /** The template chip shown over the notes. */
+    templateId?: string;
+    /** The other side's name in the transcript bubbles. */
+    them?: string;
 }
 
 /** How often typing tells main "the user is typing" (no automatic stop under their hands). */
@@ -77,22 +92,40 @@ const MEETING_INFO_POLL_MS = 5_000;
 /** Transcript lines kept for the ^ panel and Ask's sources. */
 const TRANSCRIPT_KEEP = 600;
 
-/** Ask's recipes, as Granola's: the overlay's live helpers and one question; two shown, the rest under All recipes. */
-/** Granola's floating panel: spring .2 s, bounce .2; 400px tall unless dragged, never under 160. */
-const PANEL_SPRING = { type: 'spring', duration: 0.2, bounce: 0.2 } as const;
+/**
+ * The floating panel (2026-10-30): slow, critically damped springs, as Apple's sheets move, so the
+ * panel unrolls rather than pops. The transcript opens over .55 s and closes over .45 s; Ask's short
+ * recipe row over .4 / .3. No bounce either way. 400px tall unless dragged, never under 160.
+ */
+const SMOOTH_OUT = [0.22, 1, 0.36, 1] as const;
+const PANEL_OPEN = { type: 'spring', duration: 0.55, bounce: 0 } as const;
+const PANEL_CLOSE = { type: 'spring', duration: 0.45, bounce: 0 } as const;
+const ROW_OPEN = { type: 'spring', duration: 0.4, bounce: 0 } as const;
+const ROW_CLOSE = { type: 'spring', duration: 0.3, bounce: 0 } as const;
 const PANEL_MIN = 160;
 const PANEL_HEIGHT_KEY = 'notepad.panelHeight';
 function readPanelHeight(): number {
     try { const v = Number(localStorage.getItem(PANEL_HEIGHT_KEY)); return Number.isFinite(v) && v >= PANEL_MIN ? v : 400; } catch { return 400; }
 }
 
-const SUGGESTIONS: Array<{ label: string; helper?: HelperAction; question?: string }> = [
-    { label: 'What did I miss', helper: 'catch_me_up' },
-    { label: 'Make me sound smart', helper: 'sound_smart' },
-    { label: 'Action items so far', question: 'List the action items so far in this meeting, with who owns each.' },
-    { label: 'Follow-up questions', helper: 'follow_up_questions' },
-    { label: 'Define', helper: 'define' },
-];
+/**
+ * Ask's recipes (electron/llm/noteRecipes.ts), as Granola's: two chips, the rest under
+ * All recipes and "/". While live the chips are the live helpers; after Stop, the
+ * follow-up email and todos, as Granola's are after a meeting.
+ */
+const CHIP_IDS: Record<'live' | 'ended', string[]> = { live: ['what-did-i-miss', 'sound-smart'], ended: ['follow-up-email', 'todos'] };
+const RECENT_RECIPES_KEY = 'notepad.recentRecipes';
+function readRecentRecipes(): string[] {
+    try {
+        const v = JSON.parse(localStorage.getItem(RECENT_RECIPES_KEY) ?? '[]');
+        return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!noteRecipeById(x)).slice(0, 3) : [];
+    } catch { return []; }
+}
+function rememberRecipe(id: string): string[] {
+    const next = [id, ...readRecentRecipes().filter((x) => x !== id)].slice(0, 3);
+    try { localStorage.setItem(RECENT_RECIPES_KEY, JSON.stringify(next)); } catch { /* private window: no Recent */ }
+    return next;
+}
 
 /** Granola's recipe mark: a slash in a rounded square. */
 const RecipeIcon: React.FC = () => (
@@ -113,23 +146,55 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
     const isLight = useResolvedTheme() === 'light';
     const [text, setText] = useState(preview?.text ?? '');
     const [phase, setPhase] = useState<Phase>(preview ? 'live' : 'idle');
+    // The notepad's demand (2026-11-01, FunnelTelemetry.notepadUsed): which parts of it are used,
+    // a fixed action name and recipe id only, never the notes, a question or an answer.
+    const npTrack = useCallback((action: string, recipe?: string) => {
+        if (preview) return;
+        window.electronAPI?.funnelTrack?.('notepad_used', { action, phase, ...(recipe ? { recipe: recipe.replace(/-/g, '_') } : {}) })?.catch?.(() => {});
+    }, [preview, phase]);
     const [meetingId, setMeetingId] = useState<string | null>(null);
-    const [info, setInfo] = useState(() => (preview ? { ...EMPTY_INFO, title: preview.title, people: preview.people } : EMPTY_INFO));
+    const [info, setInfo] = useState(() => (preview
+        ? { ...EMPTY_INFO, title: preview.title, people: preview.people, speakers: { me: 'You', them: preview.them ?? EMPTY_INFO.speakers.them } }
+        : EMPTY_INFO));
     const [savedTitle, setSavedTitle] = useState<string | null>(null);
+    // The saved meeting on the page after Stop, or opened from its meeting page
+    // (2026-11-02): what it was taken on (a notepad meeting resumes here).
+    // Resume does not wait for notes still being written (the resumed Stop
+    // writes them; MeetingPersistence.claimWriter).
+    const [savedSurface, setSavedSurface] = useState<'overlay' | 'notepad' | null>(null);
+    const [resumeBusy, setResumeBusy] = useState(false);
+    const [resumeNotice, setResumeNotice] = useState<string | null>(null);
+    // The phase the page was in before, to tell the page a Stop left (its heading
+    // is the live one) from a saved meeting opened onto it (heading from the row).
+    const prevPhaseRef = useRef<Phase>(phase);
     const [ask, setAskState] = useState('');
     const [askEngaged, setAskEngaged] = useState(false);
     const [allRecipes, setAllRecipes] = useState(false);
+    const [recentRecipes, setRecentRecipes] = useState<string[]>(readRecentRecipes);
+    // What the user typed here, for a live recipe's context.
+    const textRef = useRef(text);
+    textRef.current = text;
+    // The highlighted row of the "/" list.
+    const [slashAt, setSlashAt] = useState(0);
     const [findTranscript, setFindTranscript] = useState(false);
     const [hitIndex, setHitIndex] = useState(0);
     const [atBottom, setAtBottom] = useState(true);
     const [shownKind, setShownKind] = useState<'transcript' | 'ask' | null>(null);
-    const [panelHeight, setPanelHeight] = useState(() => readPanelHeight());
+    // The preview's panel leaves the notes in view above it.
+    const [panelHeight, setPanelHeight] = useState(() => (preview ? 300 : readPanelHeight()));
     const [resizing, setResizing] = useState(false);
     const [winH, setWinH] = useState(() => (typeof window === 'undefined' ? 900 : window.innerHeight));
     const askCardRef = useRef<HTMLDivElement>(null);
+    // How much of the page the floating bottom bar covers, for the notes' writing pill to stop above it.
+    const pageRef = useRef<HTMLDivElement>(null);
+    const bottomBarRef = useRef<HTMLDivElement>(null);
+    const [bottomInset, setBottomInset] = useState<number | undefined>(undefined);
+    // Scrolled off the top: the page fades out under the heading instead of being cut at a straight edge.
+    const [pageScrolled, setPageScrolled] = useState(false);
     const [showTranscript, setShowTranscript] = useState(false);
-    const [lines, setLines] = useState<TranscriptLine[]>([]);
-    const [partial, setPartial] = useState<TranscriptLine | null>(null);
+    // You and the call each keep your own words in progress (applyTranscriptEvent).
+    const [live, setLive] = useState<LiveTranscript>(EMPTY_LIVE_TRANSCRIPT);
+    const lines = live.lines;
     const [search, setSearchState] = useState('');
     const [highlightAt, setHighlightAt] = useState<number | null>(null);
     const [menuOpen, setMenuOpen] = useState(false);
@@ -145,8 +210,6 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
     const [editingTitle, setEditingTitle] = useState(false);
     const [titleDraft, setTitleDraftState] = useState('');
     const [attendeeDraft, setAttendeeDraftState] = useState('');
-    const [folderDraft, setFolderDraftState] = useState('');
-    const [folders, setFolders] = useState<FolderChoice[] | null>(null);
     const [findOpen, setFindOpen] = useState(false);
     const [findQuery, setFindQueryState] = useState('');
     const [findPos, setFindPos] = useState({ index: 0, count: 0 });
@@ -186,14 +249,11 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
     const askTextRef = useRef(ask);
     const titleDraftRef = useRef(titleDraft);
     const attendeeDraftRef = useRef(attendeeDraft);
-    const folderDraftRef = useRef(folderDraft);
-    const createFolderRef = useRef<() => void>(() => {});
     const findQueryRef = useRef(findQuery);
     const searchRef = useRef(search);
     const setAsk = useCallback((v: string) => { askTextRef.current = v; setAskState(v); }, []);
     const setTitleDraft = useCallback((v: string) => { titleDraftRef.current = v; setTitleDraftState(v); }, []);
     const setAttendeeDraft = useCallback((v: string) => { attendeeDraftRef.current = v; setAttendeeDraftState(v); }, []);
-    const setFolderDraft = useCallback((v: string) => { folderDraftRef.current = v; setFolderDraftState(v); }, []);
     const setSearch = useCallback((v: string) => { searchRef.current = v; setSearchState(v); }, []);
     const setFindQuery = useCallback((v: string) => {
         findQueryRef.current = v;
@@ -239,36 +299,99 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
         if (phase !== 'live' || preview) return;
         setInfo(EMPTY_INFO);
         setSavedTitle(null);
-        setLines([]);
-        setPartial(null);
+        setLive(EMPTY_LIVE_TRANSCRIPT);
         setTurns([]);
         setEndedTab('enhanced');
         readInfo();
         const timer = setInterval(readInfo, MEETING_INFO_POLL_MS);
         return () => clearInterval(timer);
     }, [phase, readInfo]);
+    // After Stop the notes call names the meeting. Read the saved title whichever tab is open: it
+    // used to arrive only through NotesEnhanced, so on My notes the heading never changed (2026-10-31).
+    // A saved meeting opened onto the page (not the one a Stop just left) takes its whole heading from the row.
+    useEffect(() => {
+        const from = prevPhaseRef.current;
+        prevPhaseRef.current = phase;
+        if (phase !== 'ended' || !meetingId || preview) return;
+        const opened = from !== 'live';
+        if (opened) {
+            setInfo(EMPTY_INFO);
+            setSavedTitle(null);
+            setEndedTab('enhanced');
+            setTurns([]);
+        }
+        setSavedSurface(null);
+        const api = window.electronAPI;
+        let cancelled = false;
+        const read = () => {
+            api?.getMeetingDetails?.(meetingId).then((d: any) => {
+                if (cancelled || !d) return;
+                const title = typeof d?.title === 'string' ? d.title.trim() : '';
+                if (title) setSavedTitle(title);
+                setSavedSurface(d.surface === 'notepad' ? 'notepad' : 'overlay');
+                if (opened) {
+                    const h = savedMeetingHeading(d);
+                    setInfo((prev) => ({ ...prev, title: h.title, people: h.people, event: h.event, attendees: h.attendees }));
+                }
+            }).catch(() => { /* not saved yet */ });
+        };
+        read();
+        const off = api?.onMeetingsUpdated?.(read);
+        return () => { cancelled = true; off?.(); };
+    }, [phase, meetingId, preview]);
+    useEffect(() => {
+        if (!resumeNotice) return;
+        const timer = setTimeout(() => setResumeNotice(null), 4_000);
+        return () => clearTimeout(timer);
+    }, [resumeNotice]);
 
     // The ^ panel's transcript (main sends it here only while the window is open).
     useEffect(() => {
         if (preview || !window.electronAPI?.onNativeAudioTranscript) return;
         return window.electronAPI.onNativeAudioTranscript((t) => {
             const at = typeof t.timestamp === 'number' ? t.timestamp : Date.now();
-            const line: TranscriptLine = { speaker: t.speaker, text: (t.text ?? '').trim(), at: at + (lineSeq.current++ % 1000) / 1000 };
-            if (!line.text) return;
-            if (t.final) {
-                setPartial(null);
-                setLines((prev) => [...prev, line].slice(-TRANSCRIPT_KEEP));
-            } else {
-                setPartial(line);
-            }
+            const text = (t.text ?? '').trim();
+            if (!text) return;
+            const ev = { speaker: t.speaker, text, at: at + (lineSeq.current++ % 1000) / 1000, final: !!t.final };
+            setLive((prev) => applyTranscriptEvent(prev, ev, Date.now(), TRANSCRIPT_KEEP));
         });
     }, []);
     // The transcript keeps to its newest line while it is read there (Granola's: within 48px of the end).
     useEffect(() => {
         const el = transcriptRef.current;
         if (el && showTranscript && highlightAt === null && atBottom) el.scrollTop = el.scrollHeight;
-    }, [lines, partial, showTranscript, highlightAt, atBottom]);
+    }, [live, showTranscript, highlightAt, atBottom]);
     useEffect(() => { if (!showTranscript) { setAtBottom(true); setFindTranscript(false); } }, [showTranscript]);
+    // The transcript belongs to a running meeting: after Stop it closes, so Ask has its slot back.
+    useEffect(() => { if (phase !== 'live') setShowTranscript(false); }, [phase]);
+    // The preview's live demo: one frame every 90 ms, held while the window is hidden.
+    const demo = !!preview?.demo;
+    useEffect(() => {
+        if (!demo) return;
+        let last: NotepadDemoFrame | null = null;
+        const show = (f: NotepadDemoFrame) => {
+            setLevel(f.level);
+            setShowTranscript(f.showTranscript);
+            setAskEngaged(f.askOpen);
+            if (last && sameDemoContent(last, f)) return;
+            last = f;
+            setText(f.text);
+            setLive(f.transcript);
+            setAsk(f.askText);
+            setTurns(f.turns.map((t) => ({ ...t, kind: 'helper', recipeId: 'what-did-i-miss' })));
+        };
+        if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { show(notepadDemoFrame(NOTEPAD_DEMO_STILL_MS)); return; }
+        let elapsed = 0;
+        let prev = performance.now();
+        show(notepadDemoFrame(0));
+        const timer = setInterval(() => {
+            const now = performance.now();
+            if (!document.hidden) elapsed += Math.min(now - prev, 250);
+            prev = now;
+            show(notepadDemoFrame(elapsed));
+        }, 90);
+        return () => clearInterval(timer);
+    }, [demo, setAsk]);
     useEffect(() => {
         const onResize = () => setWinH(window.innerHeight);
         window.addEventListener('resize', onResize);
@@ -367,19 +490,52 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
     }, [turns]);
 
     const busy = turns.some((t) => t.status === 'streaming');
-    const submitAsk = useCallback((value: string) => {
+    // A finished meeting's Ask reads the whole meeting, as its page's Ask does (RAGManager.queryMeeting).
+    // Its turn is a 'helper' turn so the overlay's chat tokens, which stream to every window, never land in it.
+    const askMeeting = useCallback((id: string, question: string, history?: string) => {
+        const api = window.electronAPI;
+        if (!api?.ragQueryMeeting) return;
+        setTurns((prev) => [...prev, { question, text: '', status: 'streaming', kind: 'helper' }]);
+        let text = '';
+        const settle = (patch: Partial<Turn>) => setTurns((prev) => prev.map((t, i) => (i === prev.length - 1 && t.kind === 'helper' && t.status === 'streaming' ? { ...t, ...patch } : t)));
+        const offs: Array<(() => void) | undefined> = [];
+        let finished = false;
+        const finish = (errorText?: string) => {
+            if (finished) return;
+            finished = true;
+            offs.forEach((off) => off?.());
+            settle(text ? { text, status: 'done' } : { status: 'error', errorText });
+        };
+        offs.push(api.onRAGStreamChunk?.((d) => { if (d.meetingId !== id) return; text += d.chunk; settle({ text }); }));
+        offs.push(api.onRAGStreamComplete?.((d) => { if (d.meetingId === id) finish(); }));
+        offs.push(api.onRAGStreamError?.((d) => { if (d.meetingId === id) finish(); }));
+        // The last answers ride along, so "Say more about that." has its referent.
+        api.ragQueryMeeting(id, history ? `${question}\n\n(Earlier in this chat:\n${history})` : question)
+            // Resolves after the last chunk; a query another Ask replaced ends without a complete event.
+            .then((r) => finish(r?.fallback ? 'This meeting is still being prepared for questions. Try again in a minute.' : undefined))
+            .catch(() => finish());
+    }, []);
+
+    // `shown`: what the turn reads as (a recipe's name), when the question sent is its longer instruction.
+    const submitAsk = useCallback((value: string, shown?: string) => {
         const question = value.trim();
         const api = window.electronAPI;
-        if (!question || !api?.streamGeminiChat || turnsRef.current.some((t) => t.status === 'streaming')) return;
+        if (!question || turnsRef.current.some((t) => t.status === 'streaming')) return;
+        if (!shown) npTrack('ask');
+        if (phase === 'ended' && meetingId) { setAsk(''); askMeeting(meetingId, question, askContext(turnsRef.current)); return; }
+        if (!api?.streamGeminiChat) return;
         setAsk('');
         // The last answers go along, so "and the second one?" has its referent.
         const context = askContext(turnsRef.current);
-        setTurns((prev) => [...prev, { question, text: '', status: 'streaming', kind: 'chat' }]);
+        const label = shown?.trim() || question;
+        setTurns((prev) => [...prev, { question: label, text: '', status: 'streaming', kind: 'chat' }]);
         api.streamGeminiChat(question, undefined, context).catch(() => {
-            setTurns((prev) => prev.map((t, i) => (i === prev.length - 1 && t.question === question && !t.text ? { ...t, status: 'error' } : t)));
+            setTurns((prev) => prev.map((t, i) => (i === prev.length - 1 && t.question === label && !t.text ? { ...t, status: 'error' } : t)));
         });
-    }, [setAsk]);
+    }, [setAsk, phase, meetingId, askMeeting, npTrack]);
     const submitAskRef = useRef(submitAsk);
+    // Enter in Ask, typed or through the keyboard hook: "/…" runs the recipe it names, anything else is asked.
+    const askSubmitRef = useRef<() => void>(() => {});
     submitAskRef.current = submitAsk;
 
     const runHelper = useCallback((action: HelperAction, label: string) => {
@@ -392,12 +548,32 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
             .catch(() => settle({ status: 'error' }));
     }, []);
 
+    // A recipe from a chip, All recipes or "/": a live helper, or its instruction over the meeting
+    // (note-recipe:run reads a finished meeting whole, a live one so far with what was typed here).
+    const runRecipe = useCallback((recipe: NoteRecipe, extra = '') => {
+        if (turnsRef.current.some((t) => t.status === 'streaming')) return;
+        npTrack('recipe', recipe.id);
+        setAllRecipes(false);
+        setAsk('');
+        setRecentRecipes(rememberRecipe(recipe.id));
+        if (recipe.helper) { runHelper(recipe.helper, recipe.label); return; }
+        const api = window.electronAPI;
+        if (!api?.runNoteRecipe || turnsRef.current.some((t) => t.status === 'streaming')) return;
+        const label = extra ? `${recipe.label} ${extra}` : recipe.label;
+        setTurns((prev) => [...prev, { question: label, text: '', status: 'streaming', kind: 'helper', recipeId: recipe.id, extra }]);
+        const settle = (patch: Partial<Turn>) => setTurns((prev) => prev.map((t, i) => (i === prev.length - 1 && t.kind === 'helper' && t.status === 'streaming' ? { ...t, ...patch } : t)));
+        api.runNoteRecipe({ recipeId: recipe.id, extra, meetingId, phase: phase === 'ended' ? 'ended' : 'live', notes: textRef.current })
+            .then((res) => settle(res?.text ? { text: res.text, status: 'done' } : { status: 'error' }))
+            .catch(() => settle({ status: 'error' }));
+    }, [setAsk, runHelper, meetingId, phase, npTrack]);
+
     const retry = (i: number) => {
         const turn = turns[i];
         if (!turn) return;
+        npTrack('answer_retried');
         setTurns((prev) => prev.filter((_, j) => j !== i));
-        const s = SUGGESTIONS.find((x) => x.label === turn.question && x.helper);
-        if (turn.kind === 'helper' && s?.helper) runHelper(s.helper, s.label);
+        const recipe = turn.recipeId ? noteRecipeById(turn.recipeId) : NOTE_RECIPES.find((r) => r.helper && r.label === turn.question);
+        if (recipe) runRecipe(recipe, turn.extra ?? '');
         else submitAsk(turn.question);
     };
 
@@ -442,7 +618,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
 
     // ── Note templates ──
     useEffect(() => {
-        if (preview || phase === 'ended') { setLiveTemplateId(null); return; }
+        if (preview || phase === 'ended') { setLiveTemplateId(preview?.templateId && phase !== 'ended' ? preview.templateId : null); return; }
         window.electronAPI?.liveNotesGetTemplate?.().then((id) => setLiveTemplateId(noteTemplateById(id) ? id : null)).catch(() => {});
     }, [phase, preview]);
     useEffect(() => {
@@ -454,15 +630,16 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
         const api = window.electronAPI;
         if (!api?.liveNotesSetTemplate) return;
         void api.liveNotesSetTemplate(id).then((res) => {
-            if (res?.success) { setLiveTemplateId(id); setTemplateNotice(null); return; }
+            if (res?.success) { if (id) npTrack('template_set'); setLiveTemplateId(id); setTemplateNotice(null); return; }
             const name = noteTemplateById(id)?.name;
             setTemplateNotice(res?.error === 'pro_required' && name ? `${name} notes need Natively Pro.` : 'Couldn’t set the template.');
         }).catch(() => {});
-    }, []);
+    }, [npTrack]);
     const openGallery = useCallback((initialId: string | null) => {
+        npTrack('templates_browsed');
         setGalleryQuery('');
         setGallery({ initialId });
-    }, [setGalleryQuery]);
+    }, [setGalleryQuery, npTrack]);
     const closeGallery = useCallback(() => {
         setGallery(null);
         if (fieldRef.current === 'template') { fieldRef.current = 'notes'; setField('notes'); }
@@ -481,10 +658,9 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
 
     const textFields = useRef<Partial<Record<Field, { get: () => string; set: (v: string) => void; submit: () => void }>>>({});
     textFields.current = {
-        ask: { get: () => askTextRef.current, set: setAsk, submit: () => submitAskRef.current(askTextRef.current) },
+        ask: { get: () => askTextRef.current, set: setAsk, submit: () => askSubmitRef.current() },
         title: { get: () => titleDraftRef.current, set: setTitleDraft, submit: () => commitTitleRef.current() },
         attendee: { get: () => attendeeDraftRef.current, set: setAttendeeDraft, submit: () => addAttendeeRef.current() },
-        folder: { get: () => folderDraftRef.current, set: setFolderDraft, submit: () => createFolderRef.current() },
         find: { get: () => findQueryRef.current, set: setFindQuery, submit: () => stepFind(false) },
         search: { get: () => searchRef.current, set: setSearch, submit: () => {} },
         template: { get: () => galleryQueryRef.current, set: setGalleryQuery, submit: () => {} },
@@ -507,7 +683,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
     useEffect(() => {
         const sel = fieldSelRef.current;
         if (sel && (!hookTyping || field !== sel.field || !fieldSelected(sel.field))) setFieldSel(null);
-    }, [hookTyping, field, ask, titleDraft, attendeeDraft, folderDraft, findQuery, search, galleryQuery, fieldSelected, setFieldSel]);
+    }, [hookTyping, field, ask, titleDraft, attendeeDraft, findQuery, search, galleryQuery, fieldSelected, setFieldSel]);
     // The window has no focus while the hook types, so an input's own
     // selection would not paint: draw it behind the text instead.
     useLayoutEffect(() => {
@@ -665,6 +841,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
     const shortenLine = async () => {
         const target = editorRef.current?.shortenTarget();
         if (!target || working || target.text.trim().length < 12) return;
+        npTrack('line_shortened');
         setWorking('shorten');
         try {
             const res = await window.electronAPI?.liveNotesShortenLine?.(target.text);
@@ -679,6 +856,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
     // meeting and described for the notes, like a shared screen.
     const attachImage = async () => {
         if (working) return;
+        npTrack('image_attached');
         setWorking('attach');
         try {
             const res = await window.electronAPI?.liveNotesAttachImage?.();
@@ -700,33 +878,11 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
 
     const togglePause = () => {
         const next = !paused;
+        if (next) npTrack('paused');
         setPaused(next);
         window.electronAPI?.setTranscriptionPaused?.(next).then((r) => { if (r) setPaused(r.paused); }).catch(() => setPaused(!next));
     };
 
-    // The folder button (Granola's "Add to folder"): main holds a live meeting's
-    // choice and files it at Stop; after Stop it files at once.
-    const readFolders = useCallback(() => {
-        window.electronAPI?.liveNotesFolders?.().then((list) => { if (Array.isArray(list)) setFolders(list); }).catch(() => {});
-    }, []);
-    useEffect(() => {
-        if (preview || phase === 'idle' || !window.electronAPI?.liveNotesFolders) return;
-        readFolders();
-    }, [phase, meetingId, readFolders]);
-    const toggleFolder = (folderId: string, inFolder: boolean) => {
-        setFolders((prev) => prev?.map((f) => (f.id === folderId ? { ...f, inFolder } : f)) ?? prev);
-        void window.electronAPI?.liveNotesSetFolder?.(folderId, inFolder).then(readFolders).catch(readFolders);
-    };
-    const createFolder = useCallback(() => {
-        const name = folderDraftRef.current.trim();
-        if (!name) return;
-        void window.electronAPI?.liveNotesCreateFolder?.(name).then((f) => {
-            if (!f) return;
-            setFolderDraft('');
-            return window.electronAPI?.liveNotesSetFolder?.(f.id, true);
-        }).then(readFolders).catch(() => {});
-    }, [readFolders, setFolderDraft]);
-    createFolderRef.current = createFolder;
 
     // Ask stays open while the pointer works inside its card (Copy, Say more,
     // a recipe); a press anywhere else closes it, as Granola's does.
@@ -760,6 +916,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
     const speakerName = (s: string) => (s === 'user' ? info.speakers.me : info.speakers.them);
     const hits = useMemo(() => (showTranscript && findTranscript ? findInTranscript(lines, search) : []), [showTranscript, findTranscript, lines, search]);
     const currentHit = hits.length ? ((hitIndex % hits.length) + hits.length) % hits.length : -1;
+    const transcriptRows = useMemo(() => liveTranscriptRows(live), [live]);
     const hitsByLine = useMemo(() => {
         const m = new Map<number, Array<TranscriptHit & { current: boolean }>>();
         hits.forEach((h, i) => { const list = m.get(h.at) ?? []; list.push({ ...h, current: i === currentHit }); m.set(h.at, list); });
@@ -769,14 +926,22 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
     const problem = (withoutAudio ? 'Audio is off because Ambient AI Chat is on. Turn it off in Settings › General.' : null)
         ?? Object.values(problems)[0] ?? null;
     // Ask open (Granola's): focused, or typed into through the hook. Closed, the answers wait behind "Continue chat".
-    const askOpen = phase === 'live' && askEngaged;
+    // After Stop the notepad keeps Ask (Granola's chat on a finished note), without the listening pill.
+    const askBar = phase === 'live' || (phase === 'ended' && !!meetingId && !preview);
+    const askOpen = askBar && askEngaged;
     const bars = useMemo(() => (level === null || paused ? null : listeningBarHeights(level * 3.2)), [level, paused]);
     // The floating panel: what fills it, kept on through the closing spring, and how tall.
-    const panelKind: 'transcript' | 'ask' | null = phase === 'live' ? (showTranscript ? 'transcript' : askOpen ? 'ask' : null) : null;
+    const panelKind: 'transcript' | 'ask' | null = phase === 'live' ? (showTranscript ? 'transcript' : askOpen ? 'ask' : null) : askOpen ? 'ask' : null;
     const contentKind = panelKind ?? shownKind;
     const maxPanel = Math.max(PANEL_MIN, winH - 160);
     const contentHeight: number | 'auto' = contentKind === 'transcript' || (contentKind === 'ask' && turns.length > 0) ? Math.min(Math.max(panelHeight, PANEL_MIN), maxPanel) : 'auto';
     useEffect(() => { if (panelKind) setShownKind(panelKind); }, [panelKind]);
+    const tall = contentHeight !== 'auto';
+    const panelMotion = resizing ? { duration: 0 } : panelKind ? (tall ? PANEL_OPEN : ROW_OPEN) : (tall ? PANEL_CLOSE : ROW_CLOSE);
+    // The plate is there quickly and leaves last, so the content never floats on the bare page.
+    const plateMotion = resizing ? { duration: 0 } : panelKind
+        ? { opacity: { duration: 0.25, ease: SMOOTH_OUT }, scale: panelMotion }
+        : { opacity: { duration: 0.3, delay: 0.12, ease: SMOOTH_OUT }, scale: panelMotion };
     useEffect(() => {
         if (currentHit < 0) return;
         transcriptRef.current?.querySelector('.np-hit[data-current]')?.scrollIntoView({ block: 'center' });
@@ -810,8 +975,41 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
         grip.addEventListener('pointercancel', up);
     };
     const recipeChip = 'h-6 shrink-0 inline-flex items-center gap-1 px-2.5 rounded-full text-[12px] font-[430] tracking-[0.02em] whitespace-nowrap transition-colors np-wash';
+    // Resume shows here only for a meeting taken in the notepad; an overlay meeting resumes from its page.
+    const showResume = phase === 'ended' && !!meetingId && !preview && savedSurface !== null && resumeSpot(savedSurface) === 'notepad';
+    const resumeHere = async () => {
+        if (!meetingId || resumeBusy) return;
+        setResumeBusy(true);
+        try {
+            const result = await resumeSavedMeeting(meetingId);
+            if (!result.success) {
+                setResumeNotice(result.code === 'meeting-running' ? 'Stop the meeting that is running first.'
+                        : result.code === 'mic-permission-denied' ? 'Natively needs microphone access to record.'
+                            : 'Could not resume this meeting.');
+            }
+        } catch {
+            setResumeNotice('Could not resume this meeting.');
+        } finally {
+            setResumeBusy(false);
+        }
+    };
     const showEnhanced = phase === 'ended' && !!meetingId && endedTab === 'enhanced';
     const showTabs = phase === 'ended' && !!meetingId;
+    const barShown = phase === 'live' || showTabs;
+    useLayoutEffect(() => {
+        const page = pageRef.current;
+        const bar = bottomBarRef.current;
+        if (!page || !bar || !barShown) { setBottomInset(undefined); return; }
+        const measure = () => {
+            const covered = Math.round(page.getBoundingClientRect().bottom - bar.getBoundingClientRect().top);
+            setBottomInset(covered > 0 ? covered : undefined);
+        };
+        measure();
+        const ro = new ResizeObserver(measure);
+        ro.observe(page);
+        ro.observe(bar);
+        return () => ro.disconnect();
+    }, [barShown]);
 
     // The listening controls: in their own pill, or inside the open transcript panel.
     const listeningControls = (
@@ -821,8 +1019,8 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                 aria-label={showTranscript ? 'Hide transcript' : 'Show transcript'}
                 title={showTranscript ? 'Hide transcript' : 'Show transcript'}
                 aria-expanded={showTranscript}
-                onClick={() => { setShowTranscript((s) => !s); setHighlightAt(null); }}
-                className="h-full min-w-12 shrink-0 flex items-center pl-[13.5px] pr-[7.75px] rounded-l-3xl rounded-r-lg transition-colors duration-75 np-wash"
+                onClick={() => { if (!showTranscript) npTrack('transcript_opened'); setShowTranscript((s) => !s); setHighlightAt(null); }}
+                className="h-full min-w-12 shrink-0 flex items-center pl-[13.5px] pr-[5.25px] rounded-l-3xl rounded-r-lg transition-colors duration-75 np-wash"
                 style={showTranscript ? { background: 'var(--np-wash)' } : undefined}
             >
                 <span className={`notes-listening-bars${bars ? ' notes-level' : ''}${paused ? ' np-paused' : silent ? ' np-silent' : ''}`} aria-hidden>
@@ -841,10 +1039,16 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
             )}
             <button
                 type="button"
-                aria-label={t('Stop transcript')}
-                title={t('Stop transcript')}
-                onClick={() => { void window.electronAPI?.endMeeting?.(); }}
-                className="h-full shrink-0 flex items-center pl-[5.5px] pr-[13px] rounded-l-lg rounded-r-3xl transition-colors duration-75 np-wash"
+                aria-label="Stop transcript"
+                title="Stop transcript"
+                onClick={() => { npTrack('stopped'); void window.electronAPI?.endMeeting?.(); }}
+                // The mic's mirror: a 24px round end (concentric with the pill's 28px end). At
+                // 34.5px wide that curve took most of the button and hovered as a lopsided blob,
+                // so Stop takes 2.5px from the mic's right padding (37px): the pill keeps its
+                // size. 8px corners read as a square (2026-11-01, Evin).
+                // Kept at 37px (2026-11-01): a mirrored hover needs equal widths, which either
+                // narrows the mic (44/44) or widens the pill (51/51); Evin kept the original.
+                className="h-full shrink-0 flex items-center pl-[8px] pr-[13px] rounded-l-lg rounded-r-3xl transition-colors duration-75 np-wash"
                 style={ink('--np-stop')}
             >
                 <span className="w-4 h-4 flex items-center justify-center"><span className="w-3 h-3 rounded-[2.6px] bg-current" /></span>
@@ -852,18 +1056,82 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
         </>
     );
 
-    const recipeButton = (r: (typeof SUGGESTIONS)[number]) => (
+    const recipePhase: 'live' | 'ended' = phase === 'ended' ? 'ended' : 'live';
+    const phaseRecipes = useMemo(() => recipesFor(recipePhase), [recipePhase]);
+    const chipRecipes = CHIP_IDS[recipePhase].map(noteRecipeById).filter((r): r is NoteRecipe => !!r);
+    const recentList = recentRecipes.map(noteRecipeById).filter((r): r is NoteRecipe => !!r && phaseRecipes.includes(r));
+    // "/" at the start of Ask lists the recipes: Recent and All recipes, or what the words after it match.
+    const slashQuery = ask.startsWith('/') ? ask.slice(1) : null;
+    const slashParsed = slashQuery !== null ? parseSlashCommand(phaseRecipes, ask) : null;
+    const slashMatches = useMemo(() => {
+        if (slashQuery === null) return [];
+        const found = searchRecipes(phaseRecipes, slashQuery);
+        return found.length ? found : slashParsed ? [slashParsed.recipe] : [];
+    }, [slashQuery, phaseRecipes, slashParsed]);
+    const slashOpen = askOpen && slashQuery !== null && !busy;
+    const slashSections: Array<{ title: string | null; rows: NoteRecipe[] }> = slashQuery?.trim()
+        ? [{ title: null, rows: slashMatches }]
+        : [...(recentList.length ? [{ title: 'Recent', rows: recentList }] : []), { title: 'All recipes', rows: phaseRecipes }];
+    const slashRows = slashSections.flatMap((x) => x.rows);
+    const slashIndex = Math.min(slashAt, Math.max(0, slashRows.length - 1));
+    const slashActive = slashRows[slashIndex];
+    useEffect(() => { setSlashAt(0); }, [slashQuery]);
+    const runSlash = (pick?: NoteRecipe) => {
+        // "/tldr in Spanish": the recipe it names, with the rest as the user's addition.
+        if (!pick && slashParsed?.extra) { runRecipe(slashParsed.recipe, slashParsed.extra); return; }
+        const recipe = pick ?? slashActive;
+        if (recipe) runRecipe(recipe, slashParsed?.recipe === recipe ? slashParsed.extra : '');
+    };
+    askSubmitRef.current = () => { if (askTextRef.current.startsWith('/')) runSlash(); else submitAsk(askTextRef.current); };
+
+    const recipeButton = (r: NoteRecipe) => (
         <button
-            key={r.label}
+            key={r.id}
             type="button"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => { setAllRecipes(false); if (r.helper) runHelper(r.helper, r.label); else submitAsk(r.question!); }}
+            onClick={() => runRecipe(r)}
             className={recipeChip}
             style={ink('--np-ink-secondary')}
         >
             <RecipeIcon /> {r.label}
         </button>
     );
+
+    /** Granola's recipe rows: the slash mark, the name, and what it makes underneath. */
+    /** `activeIndex`: the "/" list's highlighted row, counted across its sections; absent for All recipes. */
+    const recipeRows = (sections: Array<{ title: string | null; rows: NoteRecipe[] }>, activeIndex?: number) => {
+        const slash = activeIndex !== undefined;
+        let at = 0;
+        return sections.map((section) => {
+            const start = at;
+            at += section.rows.length;
+            return (
+            <div key={section.title ?? 'matches'} role="group" aria-label={section.title ?? 'Recipes'}>
+                {section.title && <p className="px-2.5 pt-2 pb-1 text-[11px] font-medium" style={ink('--np-ink-tertiary')}>{section.title}</p>}
+                {section.rows.map((r, j) => (
+                    <button
+                        key={`${section.title}-${r.id}`}
+                        id={slash ? `np-slash-${start + j}` : undefined}
+                        type="button"
+                        role={slash ? 'option' : 'menuitem'}
+                        aria-selected={slash ? activeIndex === start + j : undefined}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onMouseEnter={slash ? () => setSlashAt(start + j) : undefined}
+                        onClick={() => (slash ? runSlash(r) : runRecipe(r))}
+                        className="w-full flex items-start gap-2.5 px-2.5 py-1.5 rounded-lg text-left transition-colors np-wash"
+                        style={slash && activeIndex === start + j ? { background: 'var(--np-wash)' } : undefined}
+                    >
+                        <span className="mt-[3px] shrink-0" style={ink('--np-ink-secondary')}><RecipeIcon /></span>
+                        <span className="min-w-0">
+                            <span className="block text-[13px] leading-[18px] truncate" style={ink('--np-ink')}>{r.label}</span>
+                            <span className="block text-[12px] leading-4 truncate" style={ink('--np-ink-secondary')}>{r.description}</span>
+                        </span>
+                    </button>
+                ))}
+            </div>
+            );
+        });
+    };
 
     const askInput = (
         <input
@@ -873,7 +1141,27 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
             onChange={(e) => setAsk(e.target.value)}
             onMouseDown={engage('ask')}
             onFocus={() => setAskEngaged(true)}
-            onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); setAskEngaged(false); askRef.current?.blur(); } }}
+            onKeyDown={(e) => {
+                if (slashOpen && slashRows.length > 0) {
+                    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        const n = slashRows.length;
+                        setSlashAt((i) => (Math.min(i, n - 1) + (e.key === 'ArrowDown' ? 1 : n - 1)) % n);
+                        return;
+                    }
+                    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); runSlash(); return; }
+                }
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    if (slashQuery !== null) { setAsk(''); return; }
+                    setAskEngaged(false); askRef.current?.blur();
+                }
+            }}
+            role="combobox"
+            aria-autocomplete="list"
+            aria-expanded={slashOpen}
+            aria-controls={slashOpen ? 'np-slash-recipes' : undefined}
+            aria-activedescendant={slashOpen && slashRows.length > 0 ? `np-slash-${slashIndex}` : undefined}
             data-hook-typing={typingHere('ask') ? 'true' : undefined}
             placeholder={turns.length > 0 ? 'Continue chat' : 'Ask anything'}
             className="w-full h-full min-w-0 bg-transparent pl-5 pr-4 text-[14px] leading-[18px] tracking-[0.01em] outline-none placeholder:text-[color:var(--np-ask-placeholder)]"
@@ -946,13 +1234,6 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                 onAddAttendee={addAttendee}
                 onRemoveAttendee={(email) => { void window.electronAPI?.liveNotesSetAttendees?.({ remove: email }).then(() => readInfo()).catch(() => {}); }}
                 onLinkEvent={(id) => { void window.electronAPI?.liveNotesLinkEvent?.(id).then(() => readInfo()).catch(() => {}); }}
-                folders={folders}
-                onOpenFolders={readFolders}
-                onToggleFolder={toggleFolder}
-                folderDraft={folderDraft}
-                setFolderDraft={setFolderDraft}
-                onEngageFolder={engage('folder')}
-                onCreateFolder={createFolder}
                 hookField={hookTyping ? field : null}
                 preview={!!preview}
             />
@@ -1004,9 +1285,20 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                 </div>
             )}
 
-            <div className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]">
+            <div
+                ref={pageRef}
+                className="flex-1 min-h-0 overflow-y-auto [scrollbar-gutter:stable]"
+                onScroll={(e) => setPageScrolled(e.currentTarget.scrollTop > 2)}
+            >
+                {/* Top fade: sticks to the page's top edge and takes no room (-mb); shown only once scrolled. */}
+                <div
+                    aria-hidden
+                    data-np-page-fade
+                    className="np-fade-top np-page-fade pointer-events-none sticky top-0 z-[11] -mb-7 h-7"
+                    data-shown={pageScrolled ? 'true' : undefined}
+                />
                 {showEnhanced ? (
-                    <NotesEnhanced ref={enhancedRef} meetingId={meetingId!} onTitle={setSavedTitle} onOpenGallery={openGallery} />
+                    <NotesEnhanced ref={enhancedRef} meetingId={meetingId!} onTitle={setSavedTitle} onOpenGallery={openGallery} myNotes={text} bottomInset={bottomInset} />
                 ) : (
                     <>
                     {phase !== 'ended' && (liveTemplate || templateNotice) && (
@@ -1044,7 +1336,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
             {(phase === 'live' || showTabs) && (
                 <div className="absolute inset-x-0 bottom-0 z-20 pointer-events-none">
                     <div className="np-fade-bottom absolute inset-x-0 bottom-0 h-20" />
-                    <div className="relative px-4 pb-[27.5px] flex flex-col gap-2 pointer-events-auto">
+                    <div ref={bottomBarRef} className="relative px-4 pb-[27.5px] flex flex-col gap-2 pointer-events-auto">
                         {/* The meeting's status: the overlay is hidden in a notepad meeting. */}
                         {phase === 'live' && stopsAt !== null && (
                             <div className="np-elevated rounded-[20px] pl-4 pr-1.5 py-1.5 flex items-center justify-between gap-3" role="status">
@@ -1060,11 +1352,12 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                             </div>
                         )}
                         {phase === 'live' && problem && stopsAt === null && (
-                            <p className="px-2 text-[12px] leading-4" style={ink('--np-ink-secondary')} role="status">{problem}</p>
+                            <p className="px-2 text-center text-balance text-[12px] leading-4" style={ink('--np-ink-secondary')} role="status">{problem}</p>
                         )}
 
                         {/* After Stop: Granola's My notes / Enhanced switch, the thumb sliding between them. */}
-                        {showTabs && (
+                        {/* The switch steps aside while Ask is open over the notes. */}
+                        {showTabs && !askOpen && (
                             <div className="flex justify-center">
                                 <div className="np-track relative h-8 p-0.5 rounded-full flex" role="tablist" aria-label={t('Notes')}>
                                     <span className="np-thumb absolute top-0.5 bottom-0.5 w-[104px] rounded-full" style={{ left: endedTab === 'mine' ? 2 : 106 }} aria-hidden />
@@ -1087,32 +1380,43 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
 
                         {/* Granola's floating panel: the pills sit in a shell whose plate springs in (opacity, .98 → 1)
                             while the space above them grows from nothing; the transcript or Ask fills that space. */}
-                        {phase === 'live' && (
+                        {askBar && (
+                            <MotionConfig reducedMotion="user">
                             <div ref={askCardRef} className="np-shell relative isolate -mx-1 flex flex-col">
                                 <motion.div
                                     aria-hidden
                                     className="np-plate absolute inset-0 z-10 rounded-[32px]"
+                                    style={{ transformOrigin: '50% 100%' }}
                                     initial={false}
                                     animate={{ opacity: panelKind ? 1 : 0, scale: panelKind ? 1 : 0.98 }}
-                                    transition={panelKind && !resizing ? PANEL_SPRING : { duration: 0 }}
+                                    transition={plateMotion}
                                 />
                                 {contentKind && contentHeight !== 'auto' && (
                                     <div
-                                        className="np-grip absolute top-0 left-1/2 z-30 h-4 w-48 -translate-x-1/2 flex items-center justify-center cursor-ns-resize rounded-b-lg"
-                                        data-resizing={resizing ? '' : undefined}
+                                        className="np-grip absolute top-0 left-1/2 z-30 h-4 w-48 -translate-x-1/2 cursor-ns-resize"
                                         onPointerDown={startResize}
                                         aria-hidden
-                                    >
-                                        <span className="h-1 w-full rounded-full" />
-                                    </div>
+                                    />
                                 )}
                                 <motion.div
                                     className="relative z-20 flex min-h-0 flex-col justify-end overflow-hidden rounded-t-[32px]"
                                     initial={false}
                                     animate={{ height: panelKind ? contentHeight : 0 }}
-                                    transition={resizing ? { duration: 0 } : PANEL_SPRING}
+                                    transition={panelMotion}
                                     onAnimationComplete={() => { if (!panelKind) setShownKind(null); }}
                                 >
+                                    {/* The content keeps its final height while the space grows, so it is revealed
+                                        from the bottom up instead of reflowing every frame; it rises 8px out of a soft blur. */}
+                                    <motion.div
+                                        key={contentKind ?? 'none'}
+                                        className="shrink-0 flex flex-col"
+                                        style={tall ? { height: contentHeight } : undefined}
+                                        initial={tall ? { opacity: 0, y: 8, filter: 'blur(2px)' } : false}
+                                        animate={panelKind
+                                            ? { opacity: 1, y: 0, filter: 'blur(0px)', transitionEnd: { filter: 'none' } }
+                                            : { opacity: 0, y: 0, filter: 'blur(2px)' }}
+                                        transition={panelKind ? { duration: 0.45, delay: 0.06, ease: SMOOTH_OUT } : { duration: 0.2, ease: SMOOTH_OUT }}
+                                    >
                                     {contentKind === 'transcript' ? (
                                         <div className="h-full flex flex-col">
                                             <div className="shrink-0 h-12 flex items-center gap-1 px-3">
@@ -1149,7 +1453,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                             <button type="button" aria-label={t('Close find')} onClick={closeTranscriptFind} className={`${smallBtn} mr-1`} style={ink('--np-ink-secondary')}><X className="w-3.5 h-3.5" strokeWidth={2} /></button>
                                                         </>
                                                     ) : (
-                                                        <button type="button" aria-label={t('Find in transcript')} title={t('Find in transcript')} onClick={() => setFindTranscript(true)} className={iconBtn} style={ink('--np-ink-secondary')}>
+                                                        <button type="button" aria-label="Find in transcript" title="Find in transcript" onClick={() => { npTrack('transcript_searched'); setFindTranscript(true); }} className={iconBtn} style={ink('--np-ink-secondary')}>
                                                             <Search className="w-4 h-4" strokeWidth={1.75} />
                                                         </button>
                                                     )}
@@ -1160,7 +1464,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                     aria-label={t('Copy the transcript')}
                                                     title={copiedKey === 'transcript' ? 'Copied' : 'Copy transcript'}
                                                     disabled={lines.length === 0}
-                                                    onClick={() => { void copyText('transcript', lines.map((l) => `${speakerName(l.speaker)}: ${l.text}`).join('\n')); }}
+                                                    onClick={() => { npTrack('transcript_copied'); void copyText('transcript', lines.map((l) => `${speakerName(l.speaker)}: ${l.text}`).join('\n')); }}
                                                     className={`${iconBtn} disabled:opacity-40`}
                                                     style={ink('--np-ink-secondary')}
                                                 >
@@ -1172,30 +1476,23 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                             </div>
                                             <div className="relative flex-1 min-h-0">
                                                 <div ref={transcriptRef} onScroll={onTranscriptScroll} className="h-full overflow-y-auto px-4 pb-3 select-text">
-                                                    {lines.length === 0 && !partial ? (
+                                                    {lines.length === 0 && live.partials.length === 0 ? (
                                                         <p className="pt-2 text-center text-[13px]" style={ink('--np-ink-tertiary')}>{paused ? 'Transcription is paused.' : 'The transcript shows here as people talk.'}</p>
                                                     ) : (
                                                         <>
-                                                            {lines.map((l, i) => (
+                                                            {transcriptRows.map((l, i) => (
                                                                 <TranscriptBubble
-                                                                    key={l.at}
+                                                                    key={l.partial ? `partial-${l.speaker}` : l.at}
                                                                     line={l}
                                                                     name={speakerName(l.speaker)}
-                                                                    runStart={i === 0 || lines[i - 1].speaker !== l.speaker}
-                                                                    highlighted={highlightAt === l.at}
-                                                                    hits={hitsByLine.get(l.at)}
-                                                                    copied={copiedKey === `line-${l.at}`}
-                                                                    onCopy={() => { void copyText(`line-${l.at}`, l.text); }}
+                                                                    runStart={i === 0 || transcriptRows[i - 1].speaker !== l.speaker}
+                                                                    partial={l.partial}
+                                                                    highlighted={!l.partial && highlightAt === l.at}
+                                                                    hits={l.partial ? undefined : hitsByLine.get(l.at)}
+                                                                    copied={!l.partial && copiedKey === `line-${l.at}`}
+                                                                    onCopy={l.partial ? undefined : () => { void copyText(`line-${l.at}`, l.text); }}
                                                                 />
                                                             ))}
-                                                            {partial && (
-                                                                <TranscriptBubble
-                                                                    line={partial}
-                                                                    name={speakerName(partial.speaker)}
-                                                                    runStart={lines.length === 0 || lines[lines.length - 1].speaker !== partial.speaker}
-                                                                    partial
-                                                                />
-                                                            )}
                                                         </>
                                                     )}
                                                 </div>
@@ -1215,8 +1512,8 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                     ) : contentKind === 'ask' && turns.length > 0 ? (
                                         <div className="h-full flex flex-col">
                                             <div className="shrink-0 h-12 flex items-center justify-end px-3">
-                                                <button type="button" aria-label={t('New chat')} title={t('New chat')} onClick={() => setTurns([])} className={iconBtn} style={ink('--np-ink-secondary')}>
-                                                    <SquarePen className="w-4 h-4" strokeWidth={1.75} />
+                                                <button type="button" aria-label="Close" title="Close" onClick={() => { npTrack('answers_closed'); setTurns([]); }} className={iconBtn} style={ink('--np-ink-secondary')}>
+                                                    <ChevronDown className="w-4 h-4" strokeWidth={1.75} />
                                                 </button>
                                             </div>
                                             <div ref={answerScrollRef} className="flex-1 min-h-0 overflow-y-auto px-5 pb-4 space-y-4 select-text">
@@ -1234,14 +1531,14 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                             </div>
                                                             {turn.status === 'error' ? (
                                                                 <div className="mt-3 flex items-start justify-between gap-3">
-                                                                    <p className="text-[14px] leading-[1.58]" style={ink('--np-ink-secondary')}>{t('Couldn’t get an answer. Check your AI provider in Settings, then ask again.')}</p>
-                                                                    <button type="button" onClick={() => retry(i)} className={chipBtn} style={ink('--np-ink-secondary')}><RotateCcw className="w-3 h-3" strokeWidth={2} /> {t('Retry')}</button>
+                                                                    <p className="text-[14px] leading-[1.58]" style={ink('--np-ink-secondary')}>{turn.errorText ?? <>Couldn&rsquo;t get an answer. Check your AI provider in Settings, then ask again.</>}</p>
+                                                                    <button type="button" onClick={() => retry(i)} className={chipBtn} style={ink('--np-ink-secondary')}><RotateCcw className="w-3 h-3" strokeWidth={2} /> Retry</button>
                                                                 </div>
                                                             ) : turn.text ? (
-                                                                <p className="mt-3 text-[14px] leading-[1.58] whitespace-pre-wrap" style={ink('--np-ink')}>{plainAnswerText(turn.text)}</p>
+                                                                <NotepadAnswer text={turn.text} />
                                                             ) : (
-                                                                <p className="mt-3 text-[14px] leading-[1.58] inline-flex items-center gap-2" style={ink('--np-ink-tertiary')}>
-                                                                    {t('Thinking')} <span className="np-dots inline-flex items-center gap-[3px]" aria-hidden><span /><span /><span /></span>
+                                                                <p className="mt-3 text-[14px] leading-[1.58]">
+                                                                    <span className="natively-thinking-label np-thinking">Thinking</span>
                                                                 </p>
                                                             )}
                                                             {turn.status === 'done' && sources.length > 0 && (
@@ -1252,7 +1549,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                                             <li key={s.at}>
                                                                                 <button
                                                                                     type="button"
-                                                                                    onClick={() => { closeTranscriptFind(); setShowTranscript(true); setHighlightAt(s.at); }}
+                                                                                    onClick={() => { npTrack('transcript_opened'); closeTranscriptFind(); setShowTranscript(true); setHighlightAt(s.at); }}
                                                                                     className="w-full text-left text-[13px] leading-[18px] px-2 py-1 rounded-lg np-wash"
                                                                                 >
                                                                                     <span className="mr-1.5" style={ink('--np-ink-tertiary')}>{speakerName(s.speaker)}</span>
@@ -1270,7 +1567,7 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                                             {t('Say more')}
                                                                         </button>
                                                                     )}
-                                                                    <button type="button" onClick={() => { void copyText(`turn-${i}`, plainAnswerText(turn.text)); }} className={chipBtn} style={ink('--np-ink-secondary')}>
+                                                                    <button type="button" onClick={() => { npTrack('answer_copied'); void copyText(`turn-${i}`, plainAnswerText(turn.text)); }} className={chipBtn} style={ink('--np-ink-secondary')}>
                                                                         {copiedKey === `turn-${i}` ? <Check className="w-3 h-3" strokeWidth={2} /> : <Copy className="w-3 h-3" strokeWidth={2} />} {copiedKey === `turn-${i}` ? 'Copied' : 'Copy'}
                                                                     </button>
                                                                 </div>
@@ -1282,57 +1579,116 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                         </div>
                                     ) : contentKind === 'ask' ? (
                                         /* Granola's recipe row: two recipes, All recipes at the end, 24px chips of 12px. */
-                                        <div className="relative px-4 pt-[7px] pb-[3px] flex items-center gap-0.5" aria-label={t('Recipes')}>
-                                            {visibleRecipes(SUGGESTIONS, false).map(recipeButton)}
+                                        <motion.div
+                                            className="relative px-4 pt-[7px] pb-[3px] flex items-center gap-0.5"
+                                            aria-label="Recipes"
+                                            initial={{ opacity: 0, y: 4 }}
+                                            animate={panelKind ? { opacity: 1, y: 0 } : { opacity: 0, y: 0 }}
+                                            transition={panelKind ? { duration: 0.25, ease: SMOOTH_OUT } : { duration: 0.1, ease: SMOOTH_OUT }}
+                                        >
+                                            {chipRecipes.map(recipeButton)}
                                             <button
                                                 type="button"
                                                 aria-haspopup="menu"
                                                 aria-expanded={allRecipes}
                                                 onMouseDown={(e) => e.preventDefault()}
-                                                onClick={() => setAllRecipes((v) => !v)}
+                                                onClick={() => { if (!allRecipes) npTrack('recipes_browsed'); setAllRecipes((v) => !v); }}
                                                 className={`${recipeChip} ml-auto`}
                                                 style={ink(allRecipes ? '--np-ink' : '--np-ink-secondary')}
                                             >
                                                 <LayoutGrid className="w-4 h-4" strokeWidth={1.75} /> {t('All recipes')}
                                             </button>
-                                        </div>
+                                        </motion.div>
                                     ) : null}
+                                    </motion.div>
                                 </motion.div>
                                 {/* All recipes: a menu opening upward from its chip, outside the clipped content. */}
-                                <NpPop open={askOpen && allRecipes && turns.length === 0} origin="bottom right" role="menu" aria-label={t('All recipes')} className="absolute right-4 bottom-[102px] z-40 w-[240px] p-1">
-                                    {visibleRecipes(SUGGESTIONS, true).map((r) => (
-                                        <button
-                                            key={r.label}
-                                            type="button"
-                                            role="menuitem"
-                                            onMouseDown={(e) => e.preventDefault()}
-                                            onClick={() => { setAllRecipes(false); if (r.helper) runHelper(r.helper, r.label); else submitAsk(r.question!); }}
-                                            className="w-full h-8 flex items-center gap-2 px-2 rounded-lg text-[13px] text-left transition-colors np-wash"
-                                            style={ink('--np-ink')}
-                                        >
-                                            <span style={ink('--np-ink-secondary')}><RecipeIcon /></span>
-                                            {r.label}
-                                        </button>
-                                    ))}
+                                <NpPop open={askOpen && allRecipes && turns.length === 0 && slashQuery === null} origin="bottom right" role="menu" aria-label="All recipes" className="absolute right-4 bottom-[102px] z-40 w-[300px] max-h-[360px] overflow-y-auto p-1">
+                                    {recipeRows([...(recentList.length ? [{ title: 'Recent', rows: recentList }] : []), { title: 'All recipes', rows: phaseRecipes }])}
+                                </NpPop>
+                                {/* "/" in Ask: the recipes, filtered as the user types, above the field. */}
+                                <NpPop id="np-slash-recipes" open={slashOpen} origin="bottom left" role="listbox" aria-label="Recipes" className="absolute left-3 right-3 bottom-[66px] z-40 max-h-[340px] overflow-y-auto p-1">
+                                    {slashRows.length
+                                        ? recipeRows(slashSections, slashIndex)
+                                        : <p className="px-2.5 py-2 text-[13px]" style={ink('--np-ink-secondary')}>No recipes found matching "{slashQuery}"</p>}
                                 </NpPop>
                                 <div className="relative z-20 rounded-[32px] p-1">
                                     <div className="flex w-full items-end gap-2">
-                                        {!askOpen && (
-                                            <div className={`np-elevated${panelKind ? ' np-flat' : ''} h-14 flex items-center p-1 rounded-[28px] ${showTranscript ? 'w-full' : 'shrink-0'}`}>
+                                        {/* The listening pill folds away to the left as Ask opens, so Ask
+                                            widens instead of jumping; clipped only while folded or folding. */}
+                                        {phase === 'live' && <motion.div
+                                            className="shrink-0 rounded-[28px]"
+                                            inert={askOpen}
+                                            aria-hidden={askOpen || undefined}
+                                            initial={false}
+                                            animate={askOpen
+                                                ? { width: 0, opacity: 0, marginRight: -8, overflow: 'hidden' }
+                                                : { width: 'auto', opacity: 1, marginRight: 0, transitionEnd: { overflow: 'visible' } }}
+                                            transition={askOpen ? ROW_OPEN : ROW_CLOSE}
+                                        >
+                                            <div className={`np-elevated${panelKind ? ' np-flat' : ''} h-14 w-max flex items-center gap-1 p-1 rounded-[28px]`}>
                                                 {listeningControls}
-                                                {showTranscript && <TranscriptControls />}
                                             </div>
-                                        )}
-                                        {!showTranscript && (
-                                            <form
-                                                className={`np-ask ${askOpen ? 'w-full' : 'np-elevated np-glow grow basis-3/5 min-w-0'} h-14 flex items-center rounded-[28px]`}
+                                        </motion.div>}
+                                        {/* Resume (2026-11-02, meetingResume.ts): a notepad meeting records
+                                            again into itself from here, in the listening pill's place. It
+                                            folds away as Ask opens, as the listening pill does. */}
+                                        {showResume && <motion.div
+                                            className="shrink-0 rounded-[28px]"
+                                            inert={askOpen}
+                                            aria-hidden={askOpen || undefined}
+                                            initial={false}
+                                            animate={askOpen
+                                                ? { width: 0, opacity: 0, marginRight: -8, overflow: 'hidden' }
+                                                : { width: 'auto', opacity: 1, marginRight: 0, transitionEnd: { overflow: 'visible' } }}
+                                            transition={askOpen ? ROW_OPEN : ROW_CLOSE}
+                                        >
+                                            <button
+                                                type="button"
+                                                onClick={() => { void resumeHere(); }}
+                                                disabled={resumeBusy}
+                                                aria-busy={resumeBusy || undefined}
+                                                title="Keep recording into this meeting"
+                                                className={`np-elevated${panelKind ? ' np-flat' : ''} h-14 w-max flex items-center gap-[9px] pl-4 pr-[18px] rounded-[28px] text-[14px] font-medium transition-colors np-wash disabled:opacity-50 disabled:cursor-default`}
+                                                style={ink('--np-ink')}
+                                            >
+                                                <span className="np-resume-bars" aria-hidden><span /><span /><span /></span>
+                                                Resume
+                                            </button>
+                                        </motion.div>}
+                                        {/* One slot beside the pill: Ask, or the transcript's mic and language. They
+                                            crossfade in place through a 2px blur, so neither pops in or out. */}
+                                        <div className="grid grow basis-3/5 min-w-0 h-14">
+                                            <AnimatePresence initial={false}>
+                                                {showTranscript && (
+                                                    <motion.div
+                                                        key="transcript-controls"
+                                                        className="[grid-area:1/1] min-w-0 flex items-center justify-end pr-1"
+                                                        initial={{ opacity: 0, y: 4, filter: 'blur(2px)' }}
+                                                        animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transitionEnd: { filter: 'none' } }}
+                                                        exit={{ opacity: 0, filter: 'blur(2px)', transition: { duration: 0.18, ease: SMOOTH_OUT } }}
+                                                        transition={{ duration: 0.4, delay: 0.12, ease: SMOOTH_OUT }}
+                                                    >
+                                                        <TranscriptControls />
+                                                    </motion.div>
+                                                )}
+                                            </AnimatePresence>
+                                            <motion.form
+                                                className={`np-ask ${askOpen ? '' : 'np-elevated np-glow '}[grid-area:1/1] w-full min-w-0 h-14 flex items-center rounded-[28px]`}
+                                                inert={showTranscript}
+                                                aria-hidden={showTranscript || undefined}
+                                                initial={false}
+                                                animate={showTranscript
+                                                    ? { opacity: 0, scale: 0.98, filter: 'blur(2px)', pointerEvents: 'none' }
+                                                    : { opacity: 1, scale: 1, filter: 'blur(0px)', pointerEvents: 'auto', transitionEnd: { filter: 'none' } }}
+                                                transition={showTranscript ? { duration: 0.2, ease: SMOOTH_OUT } : { duration: 0.4, delay: 0.1, ease: SMOOTH_OUT }}
                                                 data-engaged={askOpen ? 'true' : undefined}
                                                 onMouseMove={askOpen ? undefined : (e) => {
                                                     const r = e.currentTarget.getBoundingClientRect();
                                                     e.currentTarget.style.setProperty('--np-x', `${e.clientX - r.left}px`);
                                                     e.currentTarget.style.setProperty('--np-y', `${e.clientY - r.top}px`);
                                                 }}
-                                                onSubmit={(e) => { e.preventDefault(); submitAsk(ask); }}
+                                                onSubmit={(e) => { e.preventDefault(); askSubmitRef.current(); }}
                                             >
                                                 {askInput}
                                                 {askOpen && (
@@ -1344,19 +1700,20 @@ const NotesWindow: React.FC<{ preview?: NotesWindowPreview }> = ({ preview }) =>
                                                         onMouseDown={(e) => e.preventDefault()}
                                                         onClick={() => { void attachImage(); }}
                                                         className="mr-2 w-9 h-9 shrink-0 rounded-full flex items-center justify-center transition-colors disabled:opacity-40 np-wash"
-                                                        style={ink('--np-ink-secondary')}
+                                                        style={{ ...ink('--np-ink-secondary'), animation: 'np-fade-in 250ms ease-out' }}
                                                     >
                                                         <Paperclip className="w-4 h-4" strokeWidth={1.75} />
                                                     </button>
                                                 )}
-                                            </form>
-                                        )}
+                                            </motion.form>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
+                            </MotionConfig>
                         )}
-                        {phase === 'live' && showTranscript && (
-                            <p className="-mt-1 text-center text-[11px] leading-4" style={ink('--np-ink-tertiary')}>{t('Natively uses AI and can make mistakes.')}</p>
+                        {resumeNotice && (
+                            <p className="-mt-1 text-center text-[12px] leading-4" style={ink('--np-ink-secondary')} role="status">{resumeNotice}</p>
                         )}
                         {phase === 'live' && paused && !showTranscript && !askOpen && (
                             <p className="-mt-1 text-center text-[12px] leading-4" style={ink('--np-ink-secondary')}>{t('Transcription paused')}</p>
@@ -1407,7 +1764,6 @@ const TranscriptBubble: React.FC<{
                     }}
                 >
                     <span style={partial ? { opacity: 0.5 } : undefined}>{hits?.length ? markHits(line.text, hits) : line.text}</span>
-                    {partial && <span className="np-dots ml-1.5 inline-flex items-center gap-[3px] align-middle" aria-hidden><span /><span /><span /></span>}
                 </p>
                 {onCopy && (
                     <button

@@ -386,19 +386,49 @@ export async function acquireOnnxSlot(priority: OnnxSlotPriority = 'normal', wei
 // Activity Monitor / `top` mean by "available":
 //   - macOS:  vm_stat → (free + inactive + speculative) * page_size
 //   - Linux:  /proc/meminfo → MemAvailable
-//   - other:  fall back to os.freemem() (best effort; Windows os.freemem() is
-//             already closer to "available" than macOS's).
+//   - Windows: os.freemem(), which libuv reads as GlobalMemoryStatusEx
+//             ullAvailPhys — already Task Manager's "Available".
+//   - other:  fall back to os.freemem() (best effort).
 //
 // Measurement is cached briefly (the value only needs to gate a burst of model
 // loads at ingest/boot; spawning `vm_stat` per chunk would be wasteful).
 
 const AVAIL_MEM_CACHE_TTL_MS = 1000;
-let availMemCache: { gb: number; at: number } | null = null;
+
+/** Which probe produced a reading. The figures are not equivalent across OSes, so logs name it. */
+export type AvailableMemorySource = 'override' | 'vm_stat' | 'meminfo' | 'freemem';
+export interface AvailableMemoryReading {
+    gb: number;
+    source: AvailableMemorySource;
+}
+// A failed measurement (null) is cached too: re-probing on every gate call
+// would run vm_stat synchronously on the main thread each time.
+let availMemCache: { reading: AvailableMemoryReading | null; at: number } | null = null;
+/** The last measurement failed — logged once per failure streak, not per gate call. */
+let availMemUnmeasured = false;
+/** Test-only stand-ins for process.platform and the OS reads (see __setAvailableMemoryProbesForTests). */
+let testMemoryPlatform: NodeJS.Platform | null = null;
+let testMemoryProbes: AvailableMemoryProbes | null = null;
+
+/** The OS reads behind measureAvailableMemory(); injectable so every platform branch is testable on any host. */
+export interface AvailableMemoryProbes {
+    /** `vm_stat` output (macOS). */
+    vmStat(): string;
+    /** /proc/meminfo contents (Linux). */
+    meminfo(): string;
+    /** os.freemem() in bytes. */
+    freemem(): number;
+}
+
+const SYSTEM_MEMORY_PROBES: AvailableMemoryProbes = {
+    // execFileSync (no shell) — args are fixed literals, no injection surface.
+    vmStat: () => execFileSync('vm_stat', [], { encoding: 'utf8', timeout: 1000 }),
+    meminfo: () => fs.readFileSync('/proc/meminfo', 'utf8'),
+    freemem: () => os.freemem(),
+};
 
 /** macOS: parse `vm_stat` into available GB (free + inactive + speculative). */
-function readMacAvailableGB(): number | null {
-    // execFileSync (no shell) — args are fixed literals, no injection surface.
-    const out = execFileSync('vm_stat', [], { encoding: 'utf8', timeout: 1000 });
+function parseVmStatAvailableGB(out: string): number | null {
     // "Mach Virtual Memory Statistics: (page size of 16384 bytes)"
     const pageSize = Number.parseInt(out.match(/page size of (\d+) bytes/)?.[1] || '4096', 10);
     const pages = (label: string): number => {
@@ -414,11 +444,46 @@ function readMacAvailableGB(): number | null {
 }
 
 /** Linux: read MemAvailable (kB) from /proc/meminfo. */
-function readLinuxAvailableGB(): number | null {
-    const meminfo = fs.readFileSync('/proc/meminfo', 'utf8');
+function parseMeminfoAvailableGB(meminfo: string): number | null {
     const kb = Number.parseInt(meminfo.match(/^MemAvailable:\s+(\d+)\s+kB/m)?.[1] || '', 10);
     if (!Number.isFinite(kb)) return null;
     return (kb * 1024) / 1024 ** 3;
+}
+
+/**
+ * One uncached measurement of AVAILABLE memory for `platform`, or null when
+ * nothing usable could be read.
+ *
+ * A reading of 0 counts as "could not measure", never "no memory": libuv
+ * reports a failed GlobalMemoryStatusEx (Windows) as 0 bytes, and a vm_stat
+ * whose labels did not parse sums to 0 pages. A running machine never has
+ * 0 bytes available, and refusing on that would block every local model for no
+ * real reason — the gates fail OPEN on a failed measurement instead.
+ */
+export function measureAvailableMemory(
+    platform: NodeJS.Platform,
+    probes: AvailableMemoryProbes = SYSTEM_MEMORY_PROBES,
+): AvailableMemoryReading | null {
+    let gb: number | null = null;
+    let source: AvailableMemorySource = 'freemem';
+    try {
+        if (platform === 'darwin') { gb = parseVmStatAvailableGB(probes.vmStat()); source = 'vm_stat'; }
+        else if (platform === 'linux') { gb = parseMeminfoAvailableGB(probes.meminfo()); source = 'meminfo'; }
+    } catch {
+        gb = null;
+    }
+    if (gb != null && Number.isFinite(gb) && gb > 0) return { gb, source };
+    // Windows' primary probe, and the macOS/Linux fallback when theirs failed:
+    // there os.freemem() is a conservative (low) estimate, so the gate leans
+    // toward refusing, as it always has.
+    let bytes: number;
+    try {
+        bytes = probes.freemem();
+    } catch {
+        return null;
+    }
+    if (!Number.isFinite(bytes) || bytes <= 0) return null;
+    return { gb: bytes / 1024 ** 3, source: 'freemem' };
 }
 
 /** One-line picture of who holds the gate, for logs and actionable errors. */
@@ -487,42 +552,44 @@ export function acquireOnnxSlotWithin(
 }
 
 /**
- * Best-effort AVAILABLE (not merely free) system memory in GB. Falls back to
- * `os.freemem()` when the platform-specific probe is unavailable or throws.
- * Cached for AVAIL_MEM_CACHE_TTL_MS to avoid spawning vm_stat per model load.
+ * Best-effort AVAILABLE (not merely free) system memory, with the probe that
+ * produced it. See measureAvailableMemory() for the per-OS probes and the
+ * os.freemem() fallback. Successful readings are cached for
+ * AVAIL_MEM_CACHE_TTL_MS to avoid spawning vm_stat per model load.
  *
  * Override for tests / incident tuning with NATIVELY_ONNX_AVAILABLE_MEM_GB
  * (a fixed value forces the gate deterministically).
+ *
+ * Throws when memory could not be measured at all; every gate catches that
+ * and fails OPEN.
  */
-export function getAvailableMemoryGB(): number {
+export function getAvailableMemoryReading(): AvailableMemoryReading {
     const override = process.env.NATIVELY_ONNX_AVAILABLE_MEM_GB;
     if (override) {
         const n = Number.parseFloat(override);
-        if (Number.isFinite(n) && n >= 0) return n;
+        if (Number.isFinite(n) && n >= 0) return { gb: n, source: 'override' };
     }
 
     const now = Date.now();
+    let reading: AvailableMemoryReading | null;
     if (availMemCache && now - availMemCache.at < AVAIL_MEM_CACHE_TTL_MS) {
-        return availMemCache.gb;
+        reading = availMemCache.reading;
+    } else {
+        const platform = testMemoryPlatform ?? process.platform;
+        reading = measureAvailableMemory(platform, testMemoryProbes ?? SYSTEM_MEMORY_PROBES);
+        availMemCache = { reading, at: now };
+        if (!reading && !availMemUnmeasured) {
+            console.warn(`[OnnxGate] Available memory could not be measured on ${platform}; local models load without the memory check until it can be.`);
+        }
+        availMemUnmeasured = !reading;
     }
+    if (!reading) throw new Error('available memory could not be measured');
+    return reading;
+}
 
-    let gb: number | null = null;
-    try {
-        if (process.platform === 'darwin') gb = readMacAvailableGB();
-        else if (process.platform === 'linux') gb = readLinuxAvailableGB();
-    } catch {
-        gb = null;
-    }
-    // Fallback: os.freemem(). On Windows this is already reasonable; on
-    // macOS/Linux it only lands here if the probe failed, and it's a
-    // conservative (low) estimate — the gate fails toward refusing, which is
-    // the pre-existing behavior, so we never regress.
-    if (gb == null || !Number.isFinite(gb)) {
-        gb = os.freemem() / 1024 ** 3;
-    }
-
-    availMemCache = { gb, at: now };
-    return gb;
+/** getAvailableMemoryReading() in GB. Throws when memory could not be measured. */
+export function getAvailableMemoryGB(): number {
+    return getAvailableMemoryReading().gb;
 }
 
 /**
@@ -535,11 +602,17 @@ export function getAvailableMemoryGB(): number {
  * a measurement failure would block the app for no real reason.
  */
 export function hasEnoughMemoryForOnnxSession(extraGB: number = 0): boolean {
-    try {
-        return getAvailableMemoryGB() >= readMinFreeGB() + sanitizeExtraGB(extraGB);
-    } catch {
-        return true;
-    }
+    return checkMemoryForOnnxSession(extraGB).ok;
+}
+
+/**
+ * The shared-floor gate (plus the caller's model headroom), returning the
+ * reading it decided on — the same shape as checkMemoryForModelSize(), so
+ * every ONNX loader reports a refusal through describeModelMemoryShortfall().
+ * Fails OPEN on a measurement error.
+ */
+export function checkMemoryForOnnxSession(extraGB: number = 0): ModelMemoryCheck {
+    return checkAvailableMemoryAgainst(getMinFreeGBForOnnxSession(extraGB));
 }
 
 /**
@@ -589,16 +662,60 @@ export function getMinFreeGBForModelSize(modelSizeMb: number | undefined | null)
     return Math.min(shared, Math.round(needed * 100) / 100);
 }
 
+/** One reading of the local-STT memory gate: the figure compared, and the floor it was compared to. */
+export interface ModelMemoryCheck {
+    ok: boolean;
+    /** null when the measurement threw (the gate then fails OPEN). */
+    availableGB: number | null;
+    /** The probe behind availableGB; null with it. */
+    source: AvailableMemorySource | null;
+    floorGB: number;
+}
+
+/**
+ * The model-size gate, returning the reading it decided on so a refusal can
+ * report that exact figure instead of measuring again (the 1s cache can expire
+ * between the check and the message). Fails OPEN on a measurement error.
+ */
+export function checkMemoryForModelSize(modelSizeMb: number | undefined | null): ModelMemoryCheck {
+    return checkAvailableMemoryAgainst(getMinFreeGBForModelSize(modelSizeMb));
+}
+
+function checkAvailableMemoryAgainst(floorGB: number): ModelMemoryCheck {
+    let reading: AvailableMemoryReading;
+    try {
+        reading = getAvailableMemoryReading();
+    } catch {
+        return { ok: true, availableGB: null, source: null, floorGB };
+    }
+    return { ok: reading.gb >= floorGB, availableGB: reading.gb, source: reading.source, floorGB };
+}
+
+/**
+ * "0.61GB available, this model needs 0.62GB" for a refused check (issue #707).
+ * The one wording for every local ONNX loader (STT, embedder, reranker).
+ * The reading is rounded DOWN: the floor is already on a 0.01 GB grid, so a
+ * refused reading always prints below it. Plain rounding printed
+ * "0.62GB available, this model needs 0.62GB" for a 0.6151 GB refusal.
+ */
+export function describeModelMemoryShortfall(check: ModelMemoryCheck): string {
+    const { availableGB, floorGB } = check;
+    if (availableGB == null) return `this model needs ${floorGB}GB`;
+    // The epsilon keeps exact cents exact (0.57 * 100 is 56.999… in floating
+    // point, which floored to "0.56"). It can only push a reading a hair under
+    // the floor up onto it, so a refused reading falls back to the plain floor.
+    let shown = Math.floor(availableGB * 100 + 1e-6) / 100;
+    if (availableGB < floorGB && shown >= floorGB) shown = Math.floor(availableGB * 100) / 100;
+    if (availableGB < floorGB && shown >= floorGB) shown = Math.max(0, floorGB - 0.01);
+    return `${shown.toFixed(2)}GB available, this model needs ${floorGB}GB`;
+}
+
 /**
  * `hasEnoughMemoryForOnnxSession` for one specific local STT model. Fails OPEN
  * on a measurement error, exactly like the shared check.
  */
 export function hasEnoughMemoryForModelSize(modelSizeMb: number | undefined | null): boolean {
-    try {
-        return getAvailableMemoryGB() >= getMinFreeGBForModelSize(modelSizeMb);
-    } catch {
-        return true;
-    }
+    return checkMemoryForModelSize(modelSizeMb).ok;
 }
 
 /** Negative, NaN or non-finite headroom must never LOWER the shared floor. */
@@ -623,6 +740,17 @@ export function getHighPriorityOnnxBudget(): number {
 
 export function getMaxConcurrentOnnxSessions(): number {
     return readMaxConcurrent();
+}
+
+/**
+ * Test-only: measure with this platform and these OS reads instead of the real
+ * ones (null restores them). Clears the cached reading either way.
+ */
+export function __setAvailableMemoryProbesForTests(platform: NodeJS.Platform | null, probes: AvailableMemoryProbes | null): void {
+    testMemoryPlatform = platform;
+    testMemoryProbes = probes;
+    availMemCache = null;
+    availMemUnmeasured = false;
 }
 
 /**

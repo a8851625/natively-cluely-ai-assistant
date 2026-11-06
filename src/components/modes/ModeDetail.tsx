@@ -22,7 +22,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Check, FileText, Plus, Trash2, Upload } from 'lucide-react';
 import { useT } from '../../i18n';
-import { SETTINGS_BTN, SETTINGS_INPUT, SETTINGS_WELL } from '../settings/SettingsRow';
+import { SETTINGS_BTN, SETTINGS_INPUT } from '../settings/SettingsRow';
 // In-window menu and dialog, never a native <select>/confirm(): those are OS
 // windows outside the content protection this app's windows carry, so they show
 // up in screen shares (see src/lib/__tests__/NoNativePopups2026_09_27.test.mjs).
@@ -330,7 +330,7 @@ export const ModeDetail: React.FC<Props> = ({ mode, catalog, noteTemplates, acce
                         rows={5}
                         placeholder={contextPlaceholder(mode.templateType)}
                         data-testid="mode-context"
-                        className={`${SETTINGS_WELL} w-full resize-y bg-bg-component p-3 text-sm leading-relaxed text-text-primary outline-none placeholder:text-text-tertiary disabled:opacity-70`}
+                        className={`w-full resize-y rounded-xl bg-bg-component p-3 text-sm leading-relaxed text-text-primary outline-none placeholder:text-text-tertiary disabled:opacity-70`}
                     />
                 </Block>
 
@@ -376,7 +376,7 @@ export const ModeDetail: React.FC<Props> = ({ mode, catalog, noteTemplates, acce
                     ) : (
                         <div className="space-y-1.5">
                             {sections.map((section) => (
-                                <div key={section.id} className={`${SETTINGS_WELL} bg-bg-component px-3 py-2`} data-testid={`mode-section-${section.id}`}>
+                                <div key={section.id} className={`rounded-xl bg-bg-component px-3 py-2`} data-testid={`mode-section-${section.id}`}>
                                     <div className="flex items-center gap-2">
                                         <input
                                             defaultValue={section.title}

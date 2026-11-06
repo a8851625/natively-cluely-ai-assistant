@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useT } from '../i18n';
 import { ToggleLeft, ToggleRight, Search, Calendar, Globe, Clock, ChevronRight, LayoutGrid, RefreshCw, Eye, EyeOff, Ghost, Plus, Mail, Link as LinkIcon, ChevronDown, Bell, DownloadCloud, CheckCircle, AlertCircle, User, Sparkles, ArrowUpRight } from 'lucide-react';
 import { ProfileIntelligenceIcon } from './ProfileIntelligenceIcon';
-import icon from "./icon.png";
+import { NativelyWordmark } from './NativelyWordmark';
 import mainui from "../UI_comp/mainui.png";
 import UpcomingCalendarCard from './ui/UpcomingCalendarCard';
 import AssistToday from './assist/AssistToday';
@@ -956,7 +956,11 @@ const Launcher: React.FC<LauncherProps> = ({ request, onStartMeeting, onOpenSett
                                 className={`relative h-full w-full ${meetingChatOpen ? '!transform-none' : ''}`}
                                 variants={contentVariants}
                             >
+                                {/* Keyed by meeting: the page copies its meeting into state once, so
+                                    opening another meeting over an open page (the notes window's
+                                    "Open meeting", a search hit) kept the old page and its Ask. */}
                                 <MeetingDetails
+                                    key={selectedMeeting.id}
                                     meeting={selectedMeeting}
                                     initialMomentMs={selectedMomentMs ?? undefined}
                                     onBack={handleBack}
@@ -985,7 +989,11 @@ const Launcher: React.FC<LauncherProps> = ({ request, onStartMeeting, onOpenSett
                                     {/* 1.5. Hero Header (Title + Controls + CTA) */}
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-4">
-                                            <h1 className="text-3xl font-celeb-light font-medium text-text-primary tracking-wide drop-shadow-sm">{t('My Natively')}</h1>
+                                            {/* The website's and the extension's "natively" wordmark, at the
+                                                navbar's 27px; currentColor, so it follows the theme. */}
+                                            <h1 className="m-0 shrink-0 text-text-primary">
+                                                <NativelyWordmark height={27} className="block" />
+                                            </h1>
 
                                             {/* Refresh Button */}
                                             <button
@@ -1171,9 +1179,16 @@ const Launcher: React.FC<LauncherProps> = ({ request, onStartMeeting, onOpenSett
                                                             transition={{ duration: 0.22, ease: [0.25, 1, 0.5, 1] }}
                                                             className="flex items-center gap-3"
                                                         >
-                                                            <img
-                                                                src={icon} alt={t('Logo')} className="w-[18px] h-[18px] object-contain brightness-0 invert drop-shadow-[0_1px_2px_rgba(0,0,0,0.1)] opacity-90"
-                                                            />
+                                                            {/* The brand mark (brand/natively-mark-white.svg) drawn
+                                                                inline: its ring and strokes are heavier than icon.png's,
+                                                                which read thin at 18px on this button. icon.png stays
+                                                                as it is for the other screens that use it. */}
+                                                            <svg
+                                                                viewBox="106 106 812 812" aria-hidden
+                                                                className="w-[18px] h-[18px] shrink-0 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.1)] opacity-90"
+                                                            >
+                                                                <path fill="currentColor" d="M512 106 A406 406 0 1 1 512 918 A406 406 0 1 1 512 106 Z M512 181 A331 331 0 1 0 512 843 A331 331 0 1 0 512 181 Z M288 194.91 H363 V829.09 H288 Z M661 194.91 H736 V829.09 H661 Z M269.75 211 L359.44 211 L754.25 813 L664.56 813 Z" />
+                                                            </svg>
                                                             <span className="drop-shadow-[0_1px_1px_rgba(0,0,0,0.1)] text-[20px] leading-none">
                                                                 {t('Start Natively')}
                                                             </span>
@@ -1215,13 +1230,11 @@ const Launcher: React.FC<LauncherProps> = ({ request, onStartMeeting, onOpenSett
                                 <section className="px-8 py-8 min-h-full">
                                     <div className="max-w-4xl mx-auto space-y-8">
 
-                                        {/* Coming up today (Brief me, reminder drafts) and the catch-up
-                                            after back-to-back meetings (assist/AssistToday). */}
+                                        {/* The list holds meeting names only. The one thing above it is
+                                            the calendar reminder's "Running late" draft, shown only when
+                                            the reminder asks for it (assist/AssistToday). */}
                                         <AssistToday
-                                            events={upcomingEvents}
                                             isLight={isLight}
-                                            isMeetingActive={isMeetingActive}
-                                            onOpenMeeting={(id) => { void handleOpenMeeting({ id } as Meeting); }}
                                             draftRequest={reminderDraftRequest}
                                         />
 
@@ -1334,7 +1347,9 @@ const Launcher: React.FC<LauncherProps> = ({ request, onStartMeeting, onOpenSett
                         {/* Liquid Icon Orb */}
                         <div className="relative flex items-center justify-center w-9 h-9 rounded-full bg-gradient-to-b from-blue-400/20 to-blue-600/20 shadow-[inset_0_1px_0_rgba(255,255,255,0.2)] border border-white/5">
                             <div className="absolute inset-0 rounded-full bg-blue-500/20 blur-md" />
-                            <RefreshCw size={15} className="text-blue-300 animate-[spin_2s_linear_infinite] drop-shadow-[0_0_5px_rgba(59,130,246,0.6)]" />
+                            {/* Light: a darker blue and no glow, as ProviderChangeNotice's ORB does;
+                                the dark theme's pale blue-300 vanished into the pale disc. */}
+                            <RefreshCw size={15} className={`relative animate-[spin_2s_linear_infinite] ${isLight ? 'text-blue-600' : 'text-blue-300 drop-shadow-[0_0_5px_rgba(59,130,246,0.6)]'}`} />
                         </div>
 
                         {/* Text Content */}

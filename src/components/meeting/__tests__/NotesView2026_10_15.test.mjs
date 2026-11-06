@@ -186,9 +186,11 @@ describe('wiring (source contracts)', () => {
         assert.match(RATING, /maxLength=\{500\}/);
     });
 
-    test('the overlay has a Notes button; the notes window is a light, tooltip-free route', () => {
-        assert.match(OVERLAY, /aria-label=\{t\('Notes'\)\}[\s\S]{0,400}?<NotebookPen/);
-        assert.match(OVERLAY, /notesWindowToggle\?\.\(\)/);
+    // The overlay's Notes button went on 2026-10-30 (the owner: the notepad is
+    // reached from Settings › Overlay); the window stays for the meeting page.
+    test('the overlay has no Notes button; the notes window is a light, tooltip-free route', () => {
+        assert.doesNotMatch(OVERLAY, /aria-label=\{t\('Notes'\)\}/);
+        assert.doesNotMatch(OVERLAY, /notesWindowToggle/);
         assert.match(AUX, /route === 'notes'[\s\S]*?<NotesWindow \/>/);
         assert.match(MAIN, /LIGHT_ROUTES = \[[^\]]*'notes'[^\]]*\]/);
     });
@@ -196,9 +198,10 @@ describe('wiring (source contracts)', () => {
     test('the notes window sends every change, pings typing, and never focuses itself', () => {
         assert.match(NOTES_WINDOW, /liveNotesSetText\?\.\(next\)/);
         assert.match(NOTES_WINDOW, /meetingAutoStopTyping\?\.\(\)/);
-        // After Stop the notepad shows the enhanced notes (2026-10-20), with Open meeting.
+        // After Stop the notepad shows the enhanced notes (2026-10-20); the Open meeting
+        // logo button beside Share was removed 2026-11-01.
         assert.match(NOTES_WINDOW, /<NotesEnhanced ref=\{enhancedRef\} meetingId=\{meetingId!\}/);
-        assert.match(live(read('../../notes/NotesEnhanced.tsx')), /notesWindowOpenMeeting\?\.\(meetingId\)/);
+        assert.doesNotMatch(live(read('../../notes/NotesEnhanced.tsx')), /notesWindowOpenMeeting/);
         assert.doesNotMatch(NOTES_WINDOW, /\.focus\(/);
         // The editor focuses only for a mouse pick, never while the hook types.
         const EDITOR = live(read('../../notes/NotesEditor.tsx'));

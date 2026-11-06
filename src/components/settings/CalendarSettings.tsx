@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { AlertCircle, ArrowUpRight, Bell, CalendarDays, CalendarRange, Check, Info, Link2, ListChecks, Loader2, PhoneOff, RefreshCw, ScreenShare, Video } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, Bell, CalendarDays, CalendarRange, Check, Info, Link2, Loader2, PhoneOff, RefreshCw, ScreenShare, Video } from 'lucide-react';
 import { useLanguage, useT } from '../../i18n';
 import { useResolvedTheme } from '../../hooks/useResolvedTheme';
-import { Collapse, CollapseItem, Presence, SettingsMotionReady, SwapLabel, useMotionReadyAfter, useSettledFlag } from './SettingsRow';
+import { Collapse, CollapseItem, Presence, SettingsMotionReady, SettingsSectionHeading, SwapLabel, useMotionReadyAfter, useSettledFlag } from './SettingsRow';
 import { SettingsToggle } from './SettingsToggle';
 import { readCalendarSnapshot, unfinishedEvents, writeCalendarSnapshot } from '../../lib/calendarSnapshot.mjs';
 import './CalendarSettings.css';
@@ -351,27 +351,6 @@ export const CalendarSettings: React.FC = () => {
       .catch(() => setAutoStop(was));
   }, []);
 
-  // The catch-up after back-to-back meetings (main: services/assist).
-  // Same save-first pattern as Detect meetings. Unset = on.
-  const [catchUp, setCatchUp] = useState<boolean | null>(null);
-  useEffect(() => {
-    let live = true;
-    window.electronAPI?.getCatchUpEnabled?.()
-      .then((on) => { if (live) setCatchUp(on !== false); })
-      .catch(() => { if (live) setCatchUp(true); });
-    return () => { live = false; };
-  }, []);
-  const catchUpRef = useRef(catchUp);
-  catchUpRef.current = catchUp;
-  const toggleCatchUp = useCallback(() => {
-    const was = catchUpRef.current;
-    if (was === null) return;
-    setCatchUp(!was);
-    window.electronAPI?.setCatchUpEnabled?.(!was)
-      .then((r) => { if (!r?.success) setCatchUp(was); })
-      .catch(() => setCatchUp(was));
-  }, []);
-
   // Snapshot shared screens (main: ScreenShareContext). Off unless turned on.
   // Same save-first pattern as Detect meetings.
   const [snapshots, setSnapshots] = useState<boolean | null>(null);
@@ -642,7 +621,7 @@ export const CalendarSettings: React.FC = () => {
           {linked ? (
             <button
               type="button"
-              className={`cp-pill cp-pill--sm cp-pill--danger${asking ? ' is-armed' : ''}`}
+              className={`cp-pill cp-pill--sm cp-pill--flat cp-pill--danger${asking ? ' is-armed' : ''}`}
               onClick={() => disconnectSource(src.id)}
               disabled={busy !== null}
             >
@@ -654,9 +633,11 @@ export const CalendarSettings: React.FC = () => {
               <ArrowUpRight size={12} className="cp-arrow" />
             </button>
           ) : (
+            // Connect: the row's small pill, flat (a fill, no outline) in the
+            // primary ink, so it reads as the row's action without a colour.
             <button
               type="button"
-              className="cp-pill cp-pill--sm"
+              className="cp-pill cp-pill--sm cp-pill--flat"
               onClick={() => connectSource(src.id)}
               disabled={busy !== null || src.state === 'unconfigured' || (src.id === 'ics' && icsDraft !== null && !icsDraft.trim())}
             >
@@ -701,8 +682,12 @@ export const CalendarSettings: React.FC = () => {
       <div className="cal-pane space-y-6 animated fadeIn" data-theme={theme} data-entered={entered || undefined} data-settings-stagger>
         {/* ── The calendars ── */}
         <section>
-          <h3 className="cp-label">{t('Calendars')}</h3>
-          <p className="cp-desc">{t('Your next meetings, here and in the Launcher, ready to join. A meeting in two calendars shows once.')}</p>
+          {/* The pane title, General's 18px/700 + 12px (SettingsSectionHeading).
+              .cp-label stays for the smaller "Upcoming" label below. */}
+          <SettingsSectionHeading
+            title={t('Calendars')}
+            subtitle={t('Your next meetings, here and in the Launcher, ready to join. A meeting in two calendars shows once.')}
+          />
           {status === null ? null : (
             <div className={`pt-4 cp-sources${reduceMotion ? ' cp-fade-in' : ''}`}>
               {sourceList.map(sourceRow)}
@@ -1002,27 +987,6 @@ export const CalendarSettings: React.FC = () => {
             </div>
             <p className="cp-desc" style={{ margin: 0 }}>
               {t('When someone else shares their screen in Zoom or Teams, Natively takes a picture every 10 seconds and adds what it shows to your notes, using your vision model. Never while you present, and paused while Undetectable is on. Get consent from the people in the meeting first.')}
-            </p>
-          </div>
-        </section>
-
-        {/* ── Catch-up after back-to-back meetings ── */}
-        <section>
-          <div className="cp-card">
-            <div className="cp-card-header">
-              <span className="cp-card-icon"><ListChecks size={12} /></span>
-              <h4 className="cp-card-label">{t('Catch up after back-to-back meetings')}</h4>
-              <span className="ml-auto flex items-center">
-                <SettingsToggle
-                  checked={!!catchUp}
-                  onChange={toggleCatchUp}
-                  label={t('Catch up after back-to-back meetings')}
-                  disabled={catchUp === null}
-                />
-              </span>
-            </div>
-            <p className="cp-desc" style={{ margin: 0 }}>
-              {t('After two or more meetings with less than 15 minutes between them, the launcher shows what was decided and what you took on, in one place.')}
             </p>
           </div>
         </section>

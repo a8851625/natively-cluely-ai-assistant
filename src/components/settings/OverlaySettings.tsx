@@ -3,7 +3,8 @@
 // Style picker (moved from General's advanced settings) and Interface Opacity
 // (moved from General). Buttons are dragged to reorder the row or dropped on
 // one in the other group to swap them; the result is saved through
-// overlayButtonOrder.ts, which every window follows.
+// overlayButtonOrder.ts, which every window follows. Under it, Your buttons
+// (OverlayCustomButtons.tsx) makes the user's own buttons, which join the tray.
 //
 // A switcher at the top (2026-10-20) picks what every meeting opens
 // (utils/meetingSurface.ts): the Natively overlay (all of the above) or the
@@ -16,22 +17,27 @@
 // and buttons slide to their new places with a FLIP transform.
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'framer-motion';
-import { AppWindow, ChevronDown, Layout, NotebookPen, RotateCcw } from 'lucide-react';
+import { AppWindow, ChevronDown, Layout, Monitor, NotebookPen, RotateCcw } from 'lucide-react';
 import NotesWindow, { type NotesWindowPreview } from '../NotesWindow';
+import { NOTEPAD_DEMO_PEOPLE, NOTEPAD_DEMO_TEMPLATE, NOTEPAD_DEMO_THEM, NOTEPAD_DEMO_TITLE } from '../notes/notepadDemo';
 import { useT } from '../../i18n';
-import type { MeetingInterfaceTheme } from '../../lib/meetingInterfaceTheme';
+import { resolveMeetingInterfaceTheme, type MeetingInterfaceTheme } from '../../lib/meetingInterfaceTheme';
+import { useResolvedTheme } from '../../hooks/useResolvedTheme';
 import type { OverlayAppearance } from '../../lib/overlayAppearance';
 import {
     DEFAULT_OVERLAY_BUTTON_ORDER,
     OVERLAY_ROW_SIZE,
     moveOverlayButton,
+    normalizeOverlayButtonOrder,
     sameOverlayButtonOrder,
     setOverlayButtonOrder,
     swapOverlayButtons,
     useOverlayButtonOrder,
     type OverlayButtonId,
 } from '../../lib/overlayButtonOrder';
-import { OVERLAY_BUTTONS } from '../overlay/overlayButtons';
+import { useOverlayCustomButtons } from '../../lib/overlayCustomButtons';
+import { overlayButtonFace } from '../overlay/overlayButtons';
+import { CustomButtonsSection } from './OverlayCustomButtons';
 import { OverlayChipContent, OverlayMockup, overlayChipClass, useOverlayAppearance } from './OverlayMockup';
 import { Presence, SETTINGS_CARD, SettingsMenu, SettingsRow, SettingsSectionHeading } from './SettingsRow';
 
@@ -41,10 +47,11 @@ const SLIDE = 'transform 220ms cubic-bezier(0.22, 1, 0.36, 1)';
 const LIFT = 'scale(1.05)';
 
 const THEMES: { mode: MeetingInterfaceTheme; label: string; description: string }[] = [
-    { mode: 'default', label: 'Default', description: 'Default overlay appearance' },
+    // Default is Lavender in light and dark (resolveMeetingInterfaceTheme), so
+    // Lavender has no entry of its own since 2026-10-31.
+    { mode: 'default', label: 'Default', description: 'Lavender glass, light or dark with the app' },
     { mode: 'liquid-glass', label: 'Liquid Glass', description: 'Liquid glass — Apple-inspired transparent overlay' },
     { mode: 'modern', label: 'Modern', description: 'Modern — polished dark glass with cobalt accents' },
-    { mode: 'lavender', label: 'Lavender', description: 'Lavender — white glass with lavender buttons, as on the website' },
 ];
 
 type Drag = {
@@ -273,8 +280,8 @@ const Preview: React.FC<{ opacity: number; theme: MeetingInterfaceTheme }> = ({ 
     const appearance = useOverlayAppearance(opacity, theme);
     const row = editor.order.slice(0, OVERLAY_ROW_SIZE);
     const tray = editor.order.slice(OVERLAY_ROW_SIZE);
-    const isGlassTheme = theme === 'liquid-glass';
-    const label = (id: OverlayButtonId, place: string) => `${t(OVERLAY_BUTTONS[id].label)}, ${place}`;
+    const customs = useOverlayCustomButtons();
+    const label = (id: OverlayButtonId, place: string) => `${overlayButtonFace(id, t, customs).label}, ${place}`;
 
     useLayoutEffect(() => {
         const stage = stageRef.current;
@@ -445,11 +452,11 @@ const SurfaceSwitch: React.FC<{ value: Surface; onChange: (s: Surface) => void; 
                 role="radiogroup"
                 aria-label={t('What meetings open')}
                 onKeyDown={onKeyDown}
-                className="relative grid grid-cols-2 p-1 rounded-full border border-border-subtle bg-bg-input"
+                className="surface-switch relative grid grid-cols-2 p-1 rounded-full"
             >
                 <motion.div
                     aria-hidden="true"
-                    className="absolute top-1 bottom-1 left-1 rounded-full bg-bg-elevated border border-border-subtle shadow-sm"
+                    className="surface-switch-thumb absolute top-1 bottom-1 left-1 rounded-full"
                     style={{ width: 'calc(50% - 4px)' }}
                     initial={false}
                     animate={{ x: `${index * 100}%` }}
@@ -475,11 +482,14 @@ const SurfaceSwitch: React.FC<{ value: Surface; onChange: (s: Surface) => void; 
     );
 };
 
-/** Sample notes for the notepad's preview. */
+/** The notepad's preview plays a short sample meeting on a loop (notes/notepadDemo.ts). */
 const NOTEPAD_SAMPLE: NotesWindowPreview = {
-    title: 'Weekly product sync',
-    people: 4,
-    text: '# Launch\n- Beta goes out Thursday\n- Docs page still needs screenshots\n\n# Next steps\n- Maya drafts the release note\n- ',
+    title: NOTEPAD_DEMO_TITLE,
+    people: NOTEPAD_DEMO_PEOPLE,
+    text: '',
+    demo: true,
+    templateId: NOTEPAD_DEMO_TEMPLATE,
+    them: NOTEPAD_DEMO_THEM,
 };
 /** The notes window's first-open width (notesWindowPolicy's NOTES_WINDOW_DEFAULT_SIZE) and a tall height, scaled down. */
 const NOTEPAD_PREVIEW = { width: 460, height: 780, scale: 0.6 } as const;
@@ -498,6 +508,116 @@ const NotepadPreview: React.FC = () => (
     </div>
 );
 
+type ScreenshotDisplay = { id: number; number: number; name: string; width: number; height: number; primary: boolean };
+
+/**
+ * Which screen the screenshot shortcut captures (electron/screenshotDisplay.ts).
+ * Shown only with more than one screen. The list is re-read when the menu
+ * opens, so a monitor plugged in since Settings opened is there.
+ */
+const ScreenshotScreenRow: React.FC = () => {
+    const t = useT();
+    const [preference, setPreference] = useState('overlay');
+    const [displays, setDisplays] = useState<ScreenshotDisplay[]>([]);
+    const [open, setOpen] = useState(false);
+    const ref = useRef<HTMLDivElement>(null);
+
+    const load = () => {
+        window.electronAPI?.getScreenshotDisplay?.()
+            .then((res) => {
+                if (!res) return;
+                setPreference(res.preference);
+                setDisplays(res.displays);
+            })
+            .catch(() => { /* keeps the last list */ });
+    };
+    useEffect(load, []);
+    useEffect(() => { if (open) load(); }, [open]);
+
+    useEffect(() => {
+        if (!open) return;
+        const onDown = (e: MouseEvent) => {
+            if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+        };
+        // Escape closes the menu, never all of Settings (as in StylePicker).
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key !== 'Escape') return;
+            e.stopPropagation();
+            setOpen(false);
+            ref.current?.querySelector('button')?.focus();
+        };
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('keydown', onKey, true);
+        return () => {
+            document.removeEventListener('mousedown', onDown);
+            document.removeEventListener('keydown', onKey, true);
+        };
+    }, [open]);
+
+    if (displays.length < 2) return null;
+
+    const screenLabel = (d: ScreenshotDisplay) => {
+        const detail = d.name || `${d.width}×${d.height}`;
+        return `${t('Screen')} ${d.number} · ${detail}${d.primary ? ` (${t('main')})` : ''}`;
+    };
+    const options = [
+        { value: 'overlay', label: t("The overlay's screen") },
+        { value: 'cursor', label: t('The screen under the mouse') },
+        ...displays.map((d) => ({ value: `display:${d.id}`, label: screenLabel(d) })),
+    ];
+    // A saved screen that is unplugged reads as the default, which is what a
+    // screenshot then captures (resolveScreenshotDisplay).
+    const current = options.find((o) => o.value === preference) ?? options[0];
+
+    const choose = (value: string) => {
+        setOpen(false);
+        const previous = preference;
+        setPreference(value);
+        window.electronAPI?.setScreenshotDisplay?.(value)
+            .then((res) => { if (!res?.success) setPreference(previous); })
+            .catch(() => setPreference(previous));
+    };
+
+    return (
+        <div className={SETTINGS_CARD}>
+            <SettingsRow
+                icon={<Monitor size={20} />}
+                title={t('Screenshot screen')}
+                description={t('Which screen the screenshot shortcut captures. In an area screenshot, a click captures the whole screen you click on.')}
+                control={
+                    <div className="relative" ref={ref}>
+                        <button
+                            type="button"
+                            onClick={() => setOpen((o) => !o)}
+                            aria-expanded={open}
+                            className="bg-bg-component hover:bg-bg-elevated border border-border-subtle text-text-primary px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-2 max-w-[220px]"
+                        >
+                            <span className="min-w-0 text-ellipsis overflow-hidden whitespace-nowrap">
+                                <Presence kind="text" id={current.value}>{current.label}</Presence>
+                            </span>
+                            <ChevronDown size={12} className={`shrink-0 transition-transform duration-[250ms] ease-sculpted motion-reduce:transition-none ${open ? 'rotate-180' : ''}`} />
+                        </button>
+                        <SettingsMenu open={open} origin="top right" role="listbox" ariaLabel={t('Screenshot screen')} className="absolute right-0 top-full mt-1 min-w-full w-max max-w-[320px] bg-bg-elevated border border-border-subtle rounded-lg shadow-xl overflow-hidden z-20 p-1 select-none">
+                            {options.map((option) => (
+                                <button
+                                    key={option.value}
+                                    type="button"
+                                    role="option"
+                                    aria-selected={current.value === option.value}
+                                    onClick={() => choose(option.value)}
+                                    className={`w-full text-left px-2.5 py-1.5 rounded-md text-xs flex items-center transition-colors ${current.value === option.value ? 'text-text-primary bg-[color:color-mix(in_srgb,var(--bg-item-active)_50%,transparent)]' : 'text-text-secondary hover:bg-bg-input hover:text-text-primary'}`}
+                                >
+                                    <span className="font-medium truncate">{option.label}</span>
+                                </button>
+                            ))}
+                        </SettingsMenu>
+                    </div>
+                }
+            />
+        </div>
+    );
+};
+
 export const OverlaySettings: React.FC<{
     opacity: number;
     theme: MeetingInterfaceTheme;
@@ -507,8 +627,12 @@ export const OverlaySettings: React.FC<{
 }> = ({ opacity, theme, onThemeChange, opacityControl }) => {
     const t = useT();
     const saved = useOverlayButtonOrder();
-    const isDefaultOrder = sameOverlayButtonOrder(saved, DEFAULT_OVERLAY_BUTTON_ORDER);
+    // Custom buttons sit after the built-in ones in the default order.
+    const isDefaultOrder = sameOverlayButtonOrder(saved, normalizeOverlayButtonOrder(DEFAULT_OVERLAY_BUTTON_ORDER));
     const style = THEMES.find((o) => o.mode === theme) ?? THEMES[0];
+    // The preview draws what the meeting will paint (Default is Lavender);
+    // the picker keeps the pick itself.
+    const paintedTheme = resolveMeetingInterfaceTheme(theme, useResolvedTheme());
     const [surface, setSurface] = useMeetingSurface();
     const switcher = <SurfaceSwitch value={surface ?? 'overlay'} onChange={setSurface} disabled={surface === null} />;
 
@@ -523,6 +647,7 @@ export const OverlaySettings: React.FC<{
                     />
                     <NotepadPreview />
                 </section>
+                <ScreenshotScreenRow />
             </div>
         );
     }
@@ -548,8 +673,10 @@ export const OverlaySettings: React.FC<{
                         </button>
                     )}
                 </div>
-                <Preview opacity={opacity} theme={theme} />
+                <Preview opacity={opacity} theme={paintedTheme} />
             </section>
+
+            <CustomButtonsSection />
 
             <div className={SETTINGS_CARD}>
                 <SettingsRow
@@ -562,6 +689,8 @@ export const OverlaySettings: React.FC<{
             </div>
 
             {opacityControl}
+
+            <ScreenshotScreenRow />
         </div>
     );
 };

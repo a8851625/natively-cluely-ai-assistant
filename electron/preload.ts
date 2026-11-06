@@ -87,12 +87,26 @@ type DirectAssistEvent =
   | { type: 'cancel'; requestId: string; sequence: number };
 
 // Types for the exposed Electron API
+/** A resumed meeting's earlier answer, for the overlay's chat (services/meeting/meetingResume.ts ResumedChatEntry). */
+interface SessionResumedChatEntry {
+  type: string;
+  timestamp: number;
+  question: string;
+  answer: string;
+  source?: string;
+  synthetic?: boolean;
+  hasImages?: boolean;
+}
+
 /** A blind notes comparison after the pick: which version was A, which was B. */
 interface NotesComparePickResult {
   choice: 'A' | 'B' | 'same';
   saved: boolean;
   a: { version: 'current' | number; label: string; provider: string | null; model: string | null };
   b: { version: 'current' | number; label: string; provider: string | null; model: string | null };
+  /** The version the pick deleted ('current': an earlier winner became the notes), or null. */
+  removed?: 'current' | number | null;
+  promoted?: number | null;
 }
 
 /** services/meetingDetection/meetingOffer.ts MeetingOfferView. */
@@ -345,7 +359,9 @@ interface ElectronAPI {
   }>;
   convertTrial: (choice: string) => Promise<{ ok: boolean }>;
   endTrialByok: (opts?: { force?: boolean }) => Promise<{ success: boolean; wipeIncomplete?: boolean; error?: string }>;
-  onTrialEnded: (cb: (data: { choice: string }) => void) => () => void;
+  onTrialEnded: (cb: (data: { choice: string; expiresAt?: string; showEndedCard?: boolean }) => void) => () => void;
+  /** The trial's AI allowance is in its last quarter (main: trial:status poll). */
+  onTrialAllowanceLow: (cb: (data: { expiresAt?: string | null }) => void) => () => void;
   // Card ledger (toaster policy): shows, strikes and retirements per card.
   cardsGet: () => Promise<{ ok: boolean; ledger?: any; error?: string }>;
   cardsRecord: (id: string, outcome: string, meta?: { until?: number }) => Promise<{ ok: boolean; ledger?: any; error?: string }>;
@@ -557,6 +573,10 @@ interface ElectronAPI {
   ) => Promise<{ refined: string | null; intent: string }>;
   generateRecap: () => Promise<{ summary: string | null }>;
   generateLiveHelper: (action: 'catch_me_up' | 'define' | 'sound_smart' | 'follow_up_questions', opts?: { sinceMs?: number }) => Promise<{ text: string | null }>;
+  /** A notepad recipe (electron/llm/noteRecipes.ts) over the live or finished meeting. */
+  runNoteRecipe: (input: { recipeId: string; extra?: string; meetingId?: string | null; phase: 'live' | 'ended'; notes?: string }) => Promise<{ text: string | null; error?: string }>;
+  compileCustomButton: (input: { name: string; description: string }) => Promise<{ instruction: string; source: 'model' | 'fallback' }>;
+  generateCustomButton: (input: { name: string; instruction: string; imagePaths?: string[]; readMinutes?: number }) => Promise<{ text: string | null; error?: string }>;
   submitManualQuestion: (question: string) => Promise<{ answer: string | null; question: string }>;
   getIntelligenceContext: () => Promise<{
     context: string;
@@ -978,9 +998,6 @@ interface ElectronAPI {
   /** The note template for the running (or next) meeting's notes; null clears. */
   liveNotesSetTemplate: (id: string | null) => Promise<{ success: boolean; error?: 'pro_required' | 'unknown_template' }>;
   liveNotesGetTemplate: () => Promise<string | null>;
-  liveNotesFolders: () => Promise<Array<{ id: string; name: string; inFolder: boolean }>>;
-  liveNotesSetFolder: (folderId: string, inFolder: boolean) => Promise<{ success: boolean }>;
-  liveNotesCreateFolder: (name: string) => Promise<{ id: string; name: string } | null>;
   /** The calendar's events around now, for "Link a different event". */
   liveNotesCalendarCandidates: () => Promise<Array<{ id: string; title: string; startTime: string; endTime: string; people: number }>>;
   liveNotesLinkEvent: (eventId: string | null) => Promise<{ success: boolean }>;
@@ -991,6 +1008,10 @@ interface ElectronAPI {
   onLiveNotesState: (callback: (state: { phase: 'idle' | 'live' | 'ended'; meetingId: string | null; text?: string }) => void) => () => void;
   /** "Open meeting" in the notes window: the launcher opens that meeting. */
   notesWindowOpenMeeting: (meetingId: string) => Promise<{ success: boolean }>;
+  /** The notepad on a saved meeting (the meeting page's notepad button). */
+  notesWindowOpenSavedMeeting: (meetingId: string) => Promise<{ success: boolean; code?: string }>;
+  /** Resume: recording again into a saved meeting (services/meeting/meetingResume.ts). */
+  resumeMeeting: (meetingId: string, request?: { audio?: { inputDeviceId: string | null; outputDeviceId: string | null }; doNotPersist?: boolean }) => Promise<{ success: boolean; error?: string; code?: string }>;
   onLauncherOpenMeeting: (callback: (meetingId: string) => void) => () => void;
   /** Earlier versions of a meeting's notes, oldest first. */
   getMeetingNotesVersions: (meetingId: string) => Promise<Array<{ id: number; label: string; createdAt: number; templateType: string | null; detailedSummary: any }>>;
@@ -1303,6 +1324,13 @@ interface ElectronAPI {
       post_call_summary?: boolean;
     }) => void,
   ) => () => void;
+  getScreenshotDisplay: () => Promise<{
+    preference: string;
+    displays: Array<{ id: number; number: number; name: string; width: number; height: number; primary: boolean }>;
+  }>;
+  setScreenshotDisplay: (preference: string) => Promise<{ success: boolean; error?: string }>;
+  cropperPickDisplay: () => void;
+  cropperDrag: (active: boolean) => void;
   getScreenUnderstandingMode: () => Promise<'vision_first' | 'vision_only' | 'private_vision'>;
   setScreenUnderstandingMode: (
     mode: 'vision_first' | 'vision_only' | 'private_vision',
@@ -1527,6 +1555,8 @@ interface ElectronAPI {
   // Settings › Overlay: the meeting overlay's button order, passed to every window the same way.
   setOverlayButtonOrder: (order: string[]) => void;
   onOverlayButtonOrderChanged: (callback: (order: string[]) => void) => () => void;
+  setOverlayCustomButtons: (buttons: { id: string; name: string; prompt: string; instruction: string; screenshot: boolean }[]) => void;
+  onOverlayCustomButtonsChanged: (callback: (buttons: unknown) => void) => () => void;
 
   // Cancel the in-flight gemini-chat-stream. Renderer wires this to "drop
   // the current answer" user actions (Escape, navigation, chat-overlay unmount).
@@ -1999,10 +2029,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getLocalTrial: () => ipcRenderer.invoke('trial:get-local'),
   convertTrial: (choice: string) => ipcRenderer.invoke('trial:convert', choice),
   endTrialByok: (opts?: { force?: boolean }) => ipcRenderer.invoke('trial:end-byok', opts),
-  onTrialEnded: (cb: (data: { choice: string }) => void) => {
+  onTrialEnded: (cb: (data: { choice: string; expiresAt?: string; showEndedCard?: boolean }) => void) => {
     const sub = (_: any, data: any) => cb(data);
     ipcRenderer.on('trial-ended', sub);
     return () => ipcRenderer.removeListener('trial-ended', sub);
+  },
+  onTrialAllowanceLow: (cb: (data: { expiresAt?: string | null }) => void) => {
+    const sub = (_: any, data: any) => cb(data);
+    ipcRenderer.on('trial-allowance-low', sub);
+    return () => ipcRenderer.removeListener('trial-allowance-low', sub);
   },
   cardsGet: () => ipcRenderer.invoke('cards:get'),
   cardsRecord: (id: string, outcome: string, meta?: { until?: number }) => ipcRenderer.invoke('cards:record', id, outcome, meta),
@@ -2332,6 +2367,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   generateRecap: () => ipcRenderer.invoke('generate-recap'),
   generateLiveHelper: (action: 'catch_me_up' | 'define' | 'sound_smart' | 'follow_up_questions', opts?: { sinceMs?: number }) =>
     ipcRenderer.invoke('generate-live-helper', action, opts),
+  runNoteRecipe: (input: { recipeId: string; extra?: string; meetingId?: string | null; phase: 'live' | 'ended'; notes?: string }) =>
+    ipcRenderer.invoke('note-recipe:run', input),
+  compileCustomButton: (input: { name: string; description: string }) =>
+    ipcRenderer.invoke('custom-button:compile', input),
+  generateCustomButton: (input: { name: string; instruction: string; imagePaths?: string[]; readMinutes?: number }) =>
+    ipcRenderer.invoke('generate-custom-button', input),
   submitManualQuestion: (question: string) =>
     ipcRenderer.invoke('submit-manual-question', question),
   getIntelligenceContext: () => ipcRenderer.invoke('get-intelligence-context'),
@@ -2737,8 +2778,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('intelligence-error', subscription);
     };
   },
-  onSessionReset: (callback: () => void) => {
-    const subscription = () => callback();
+  onSessionReset: (callback: (payload?: { resumedChat?: SessionResumedChatEntry[] }) => void) => {
+    const subscription = (_event: unknown, payload?: { resumedChat?: SessionResumedChatEntry[] }) => callback(payload && typeof payload === 'object' ? payload : undefined);
     ipcRenderer.on('session-reset', subscription);
     return () => {
       ipcRenderer.removeListener('session-reset', subscription);
@@ -3120,9 +3161,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   liveNotesSetTitle: (title: string) => ipcRenderer.invoke('live-notes:set-title', title),
   liveNotesSetTemplate: (id: string | null) => ipcRenderer.invoke('live-notes:set-template', id),
   liveNotesGetTemplate: () => ipcRenderer.invoke('live-notes:get-template'),
-  liveNotesFolders: () => ipcRenderer.invoke('live-notes:folders'),
-  liveNotesSetFolder: (folderId: string, inFolder: boolean) => ipcRenderer.invoke('live-notes:set-folder', { folderId, inFolder }),
-  liveNotesCreateFolder: (name: string) => ipcRenderer.invoke('live-notes:create-folder', name),
   liveNotesCalendarCandidates: () => ipcRenderer.invoke('live-notes:calendar-candidates'),
   liveNotesLinkEvent: (eventId: string | null) => ipcRenderer.invoke('live-notes:link-event', { eventId }),
   liveNotesSetAttendees: (change: { add?: string; remove?: string }) => ipcRenderer.invoke('live-notes:set-attendees', change),
@@ -3135,6 +3173,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     };
   },
   notesWindowOpenMeeting: (meetingId: string) => ipcRenderer.invoke('notes-window:open-meeting', meetingId),
+  notesWindowOpenSavedMeeting: (meetingId: string) => ipcRenderer.invoke('notes-window:open-saved-meeting', meetingId),
+  resumeMeeting: (meetingId: string, request?: { audio?: { inputDeviceId: string | null; outputDeviceId: string | null }; doNotPersist?: boolean }) => ipcRenderer.invoke('meeting:resume', meetingId, request),
   onLauncherOpenMeeting: (callback: (meetingId: string) => void) => {
     const subscription = (_: any, value: any) => callback(String(value));
     ipcRenderer.on('launcher:open-meeting', subscription);
@@ -3574,6 +3614,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.removeListener('provider-data-scopes-changed', subscription);
     };
   },
+  getScreenshotDisplay: () => ipcRenderer.invoke('get-screenshot-display'),
+  setScreenshotDisplay: (preference: string) => ipcRenderer.invoke('set-screenshot-display', preference),
   getScreenUnderstandingMode: () => ipcRenderer.invoke('get-screen-understanding-mode'),
   setScreenUnderstandingMode: (mode: 'vision_first' | 'vision_only' | 'private_vision') =>
     ipcRenderer.invoke('set-screen-understanding-mode', mode),
@@ -3635,6 +3677,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Cropper API
   cropperConfirmed: (bounds: Electron.Rectangle) => ipcRenderer.send('cropper-confirmed', bounds),
   cropperCancelled: () => ipcRenderer.send('cropper-cancelled'),
+  cropperPickDisplay: () => ipcRenderer.send('cropper-display-picked'),
+  cropperDrag: (active: boolean) => ipcRenderer.send('cropper-drag', active === true),
   /** Launcher only: the boot reveal animation has fully landed. */
   notifyLauncherRevealComplete: () => ipcRenderer.send('launcher:reveal-complete'),
   onResetCropper: (callback: (data: { hudPosition: { x: number; y: number } }) => void) => {
@@ -3804,6 +3848,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('overlay-buttons:changed', handler);
     return () => {
       ipcRenderer.removeListener('overlay-buttons:changed', handler);
+    };
+  },
+  setOverlayCustomButtons: (buttons: { id: string; name: string; prompt: string; instruction: string; screenshot: boolean }[]) => {
+    ipcRenderer.send('overlay-custom-buttons:set', buttons);
+  },
+  onOverlayCustomButtonsChanged: (callback: (buttons: unknown) => void) => {
+    const handler = (_evt: unknown, buttons: unknown) => callback(buttons);
+    ipcRenderer.on('overlay-custom-buttons:changed', handler);
+    return () => {
+      ipcRenderer.removeListener('overlay-custom-buttons:changed', handler);
     };
   },
 

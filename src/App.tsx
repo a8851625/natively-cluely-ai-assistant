@@ -17,6 +17,7 @@ import { useTrialExpiry }       from "./components/trial/useTrialExpiry"
 import { TrialMeterToaster }    from "./components/trial/TrialMeterToaster"
 import type { TrialUsage, TrialLimits } from './types/nativelyUsage';
 import { FreeTrialModal }       from "./components/trial/FreeTrialModal"
+import { usageForEndedCard }    from "./lib/trial/endedTrialUsage.mjs"
 import { OrchestratorProvider, OrchestratedToasterHost, setUserState as setOrchestratorUserState, emitOrchestratorEvent } from "./components/onboarding/OrchestratedToasterHost"
 // NOTE: explicit `.ts` extension is load-bearing. Vite's default resolver
 // tries `.mjs` before `.ts` (see DEFAULT_EXTENSIONS in vite/dist/node/constants.js),
@@ -31,10 +32,10 @@ import { OrchestratorProvider, OrchestratedToasterHost, setUserState as setOrche
 // unmounting the whole tree — the black-screen root cause. Do not remove
 // the extension.
 import { getOrchestrator } from "./lib/onboarding/orchestrator.ts"
-import { isInternalCaptureDevice } from "../electron/audio/audioDeviceSelection.mjs"
+import { savedMeetingAudio } from "./lib/startMeetingRequest"
 import { ProviderChangeNotice, type EmbeddingDegradedNotice } from "./components/ProviderChangeNotice"
 import { clampOverlayOpacity, OVERLAY_OPACITY_DEFAULT, getDefaultOverlayOpacity } from "./lib/overlayAppearance"
-import { getMeetingInterfaceTheme, type MeetingInterfaceTheme } from './lib/meetingInterfaceTheme'
+import { getMeetingInterfaceTheme, resolveMeetingInterfaceTheme, type MeetingInterfaceTheme } from './lib/meetingInterfaceTheme'
 import { permissionsNeedAttention } from './lib/permissionAttentionPolicy.mjs'
 import { collectRendererLegacy } from './lib/cards/rendererLegacy.mjs'
 import { resetRendererTrialClaim } from './lib/trialCampaign.mjs'
@@ -471,6 +472,11 @@ const App: React.FC = () => {
   const [showTrialExpiredModal, setShowTrialExpiredModal] = useState(() =>
     import.meta.env.DEV && new URLSearchParams(window.location.search).has('forceTrialEnded')
   );
+  // The last live trial the launcher saw, kept past its end for the ended
+  // card's usage sentence, and what ended it.
+  const lastSeenTrialRef = useRef<typeof activeTrial>(null);
+  useEffect(() => { if (activeTrial) lastSeenTrialRef.current = activeTrial; }, [activeTrial]);
+  const [trialEndedReason, setTrialEndedReason] = useState<'clock' | 'allowance'>('clock');
   // The card is due (expired at launch) but still inside its 10 s delay: it
   // already owns the card slot, so no other card can open under it.
   const [trialEndedDue, setTrialEndedDue] = useState(false);
@@ -850,6 +856,16 @@ const App: React.FC = () => {
     // Listen for trial-ended event (emitted by trial:end-byok IPC)
     const removeTrialListener = window.electronAPI?.onTrialEnded?.((data) => {
       setActiveTrial(null);
+      // The trial's AI allowance ran out before its clock (main:
+      // endTrialForUsedAllowance): the same end as at 30 minutes, card included,
+      // now rather than at the next poll.
+      if (data?.choice === 'allowance') {
+        setTrialEndedReason('allowance');
+        if (data.showEndedCard && ownsTrialClock) setShowTrialExpiredModal(true);
+        if (trialEndedTimer) { clearTimeout(trialEndedTimer); trialEndedTimer = null; }
+        if (trialPollId) { clearInterval(trialPollId); trialPollId = null; }
+        return;
+      }
       // The BYOK exit is announced while its card is still Cleaning up; that
       // card closes itself once the user leaves "All set". Every other ending
       // (a licence or key superseded the trial) takes the card away.
@@ -1123,38 +1139,10 @@ const App: React.FC = () => {
   const handleStartMeeting = async (calendar?: { title: string; calendarEventId: string }) => {
     const linked = calendar && typeof calendar === 'object' && typeof calendar.calendarEventId === 'string' ? calendar : undefined;
     try {
-      // Self-heal a poisoned preference. Until the picker started filtering
-      // them, Natively's own system-audio tap aggregate could be enumerated as
-      // an input device (private CoreAudio aggregates are hidden from other
-      // processes, not from ours) and saved here. It is not a microphone and
-      // never exists at mic-start time, so every meeting failed with
-      // "Input device 'NativelySystemAudioTap' not found". Main falls back to
-      // the default either way; dropping the key stops the stale value from
-      // being shown as the user's choice in Settings forever.
-      let inputDeviceId = localStorage.getItem('preferredInputDeviceId');
-      if (isInternalCaptureDevice(inputDeviceId)) {
-        console.warn(`[App] Discarding saved input device "${inputDeviceId}" — it is one of Natively's own capture devices, not a microphone.`);
-        localStorage.removeItem('preferredInputDeviceId');
-        inputDeviceId = null;
-      }
-      let outputDeviceId = localStorage.getItem('preferredOutputDeviceId');
-      // SCK is a macOS-only backend (ScreenCaptureKit + CoreAudio Process Tap
-      // live in the Rust speaker module under #[cfg(target_os = "macos")]).
-      // F-003 hid the toggle UI on Windows, but the localStorage key can be
-      // present on a Windows machine via cross-OS sync or restored backup —
-      // routing "sck" as an outputDeviceId then hands the Windows speaker
-      // module an unknown WASAPI device id and silently breaks system audio.
-      // Defense-in-depth: also require isMac at the consumer.
-      const useExperimentalSck = isMac && localStorage.getItem('useExperimentalSckBackend') === 'true';
-
-      // Override output device ID to force SCK if experimental mode is enabled
-      // Default to CoreAudio unless experimental is enabled
-      if (useExperimentalSck) {
-        console.log("[App] Using ScreenCaptureKit backend (Experimental).");
-        outputDeviceId = "sck";
-      } else if (isMac) {
-        console.log("[App] Using CoreAudio backend (Default).");
-      }
+      // The saved microphone and speaker, as Resume asks for them too
+      // (lib/startMeetingRequest.ts: drops Natively's own tap aggregate saved
+      // as a microphone, and 'sck' only on macOS with the experimental switch).
+      const { inputDeviceId, outputDeviceId } = savedMeetingAudio();
 
       const meetingRetention = await window.electronAPI.getMeetingRetention?.().catch(() => 'forever');
       const result = await window.electronAPI.startMeeting({
@@ -1236,7 +1224,9 @@ const App: React.FC = () => {
     setIsProcessingMeeting(true);
   };
 
-  const interfaceThemeAttribute = meetingInterfaceTheme === 'default' ? undefined : meetingInterfaceTheme;
+  // What the overlay paints for the pick: Default is Lavender.
+  const paintedInterfaceTheme = resolveMeetingInterfaceTheme(meetingInterfaceTheme, isLight ? 'light' : 'dark');
+  const interfaceThemeAttribute = paintedInterfaceTheme === 'default' ? undefined : paintedInterfaceTheme;
 
   // Render Logic
   if (isCropperWindow) {
@@ -1319,7 +1309,7 @@ const App: React.FC = () => {
                   <NativelyInterface
                     onMeetingEnded={handleMeetingEnded}
                     overlayOpacity={overlayOpacity}
-                    interfaceTheme={meetingInterfaceTheme}
+                    interfaceTheme={paintedInterfaceTheme}
                   />
                 </React.Suspense>
               </div>
@@ -1560,7 +1550,9 @@ const App: React.FC = () => {
         {/* Post-trial upgrade modal — shown when trial expires */}
         {!isolateModals && (isLauncherWindow || isDefault) && showTrialExpiredModal && (
           <FreeTrialModal
-            usage={activeTrial?.usage ?? { ai: 0, ai_tokens: 0, stt_seconds: 0, search: 0 }}
+            // activeTrial is already cleared when the card opens: the last
+            // figures seen, never zeros (src/lib/trial/endedTrialUsage.mjs).
+            usage={activeTrial?.usage ?? usageForEndedCard(lastSeenTrialRef.current, trialEndedReason)}
             onByok={async (opts) => {
               // A wipe that did not finish must not read as "All set": the card
               // shows the error with Try again (toaster policy §5 row 5). After
